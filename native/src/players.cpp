@@ -81,6 +81,12 @@ struct Flow {
     std::map<uint32_t, Channel> channels;
     std::map<uint32_t, Json> paths;
     std::map<uint32_t, Actor> actors;
+    // slot -> actor 索引。position() 每个移动包都要按 slot 找 actor，
+    // 旧实现遍历整个 actors 表（最多 8192 项），绝密模式每秒几十个移动包
+    // => 每秒数百万次比较 => 单线程 CPU 吃满 => 数据积压 => 雷达位置滞后。
+    // 用索引把查找降到 O(log n)，并在 actors 增删时同步维护。
+    std::map<int, uint32_t> slot_index;   // slot -> actor id（0 表示冲突/无效）
+    std::set<int> slot_dup;               // 出现过多个 actor 的 slot（冲突）
     std::map<std::pair<uint32_t, unsigned>, Track> slots;
     std::map<int, std::pair<int64_t, uint64_t>> claim_time;
     std::set<int> claim_conflicts;
@@ -338,15 +344,21 @@ struct PlayerDecoder::Impl {
         Json name = nullptr, team = nullptr, fields = Json::object();
         uint32_t actor_id = 0, ps_id = 0;
         bool conflict = f.claim_conflicts.contains(int(slot)), exact = false;
-        for (auto &[id, a] : f.actors)
-            if (a.slot == int(slot)) {
-                if (actor_id) {
-                    conflict = true;
-                    break;
+        // 用 slot_index 索引查找，替代遍历整个 actors 表。
+        // 旧实现每个移动包遍历最多 8192 个 actor，绝密模式每秒几十个移动包
+        // => 每秒数百万次比较 => 单线程 CPU 吃满 => 数据积压 => 雷达位置滞后。
+        if (f.slot_dup.contains(int(slot))) {
+            conflict = true;   // 该 slot 出现过多个 actor，判为冲突
+        } else {
+            auto si = f.slot_index.find(int(slot));
+            if (si != f.slot_index.end() && si->second) {
+                auto ai = f.actors.find(si->second);
+                if (ai != f.actors.end()) {
+                    actor_id = ai->first;
+                    ps_id = player_state_for(f, ai->second);
                 }
-                actor_id = id;
-                ps_id = player_state_for(f, a);
             }
+        }
         if (conflict) {
             actor_id = ps_id = 0;
         }
@@ -754,18 +766,31 @@ struct PlayerDecoder::Impl {
                             actor.slot = -1;
                         else if (slot < 512 &&
                                  (!f.claim_time.contains(slot) || stamp > f.claim_time.at(slot))) {
-                            for (auto &[id, old] : f.actors)
-                                if (old.slot == slot) {
-                                    if (id != channel.actor) lifecycle(f,event,id,false,"slot_reused");
-                                    old.slot = -1;
+                            // 用 slot_index 找占用该 slot 的旧 actor，替代遍历整个 actors 表。
+                            // 旧实现每个 MoveHandle 更新都遍历最多 8192 个 actor，
+                            // 玩家一直移动时每秒触发几十次 => CPU 吃满 => 雷达滞后。
+                            auto si = f.slot_index.find(slot);
+                            if (si != f.slot_index.end() && si->second && si->second != channel.actor) {
+                                auto oi = f.actors.find(si->second);
+                                if (oi != f.actors.end()) {
+                                    lifecycle(f,event,oi->first,false,"slot_reused");
+                                    oi->second.slot = -1;
                                 }
+                            }
                             actor.slot = slot;
+                            f.slot_index[slot] = channel.actor;
+                            f.slot_dup.erase(slot);
                             f.claim_time[slot] = stamp;
                             f.claim_conflicts.erase(slot);
-                        } else if (slot < 512 && stamp == f.claim_time.at(slot) && actor.slot != slot) {
-                            for (auto &[id, old] : f.actors)
-                                if (old.slot == slot)
-                                    old.slot = -1;
+                        } else if (slot < 512 && f.claim_time.contains(slot) &&
+                                   stamp == f.claim_time.at(slot) && actor.slot != slot) {
+                            auto si = f.slot_index.find(slot);
+                            if (si != f.slot_index.end() && si->second) {
+                                auto oi = f.actors.find(si->second);
+                                if (oi != f.actors.end()) oi->second.slot = -1;
+                            }
+                            f.slot_index[slot] = 0;
+                            f.slot_dup.insert(slot);
                             f.claim_conflicts.insert(slot);
                         }
                     }
@@ -858,7 +883,16 @@ struct PlayerDecoder::Impl {
                 if(f.loot.close(c.actor,b.close_reason,e.at("data").at("timestampMs"),f.logical_order))loot_event(f,e,c.actor);
                 if (c.actor && c.profile == "character")
                     lifecycle(f,e,c.actor,!removed,b.close_reason == 1 ? "dormancy" : b.close_reason == 3 ? "out_of_relevancy" : "channel_close_" + std::to_string(b.close_reason));
-                if (removed) f.actors.erase(c.actor);
+                if (removed) {
+                    // 删 actor 时必须同步清掉 slot_index，否则索引会指向已删除的 actor。
+                    auto ai = f.actors.find(c.actor);
+                    if (ai != f.actors.end() && ai->second.slot >= 0) {
+                        auto si = f.slot_index.find(ai->second.slot);
+                        if (si != f.slot_index.end() && si->second == c.actor)
+                            si->second = 0;
+                    }
+                    f.actors.erase(c.actor);
+                }
                 c.actor = c.arch = 0; c.profile.clear(); c.movement_confirmed = false; ++c.generation;
             }
         };
