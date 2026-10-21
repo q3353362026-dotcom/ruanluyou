@@ -1,0 +1,15 @@
+perf: 砍掉每 sample 的 equipment/lifecycle 深拷贝 + validator 不再复制整个 sample
+
+实测根因（绝密模式，游戏进行中）：
+- 采集线程 utime 391/4s = 97.75% 用户态，stime 仅 2.25%
+- select rate=54/s，zero=1032，eintr=0 => 不空转，在真处理
+- udpDecryptPacketsPerSecond=35，coordinateSamplesPerSecond=244
+- 即每秒 244 个 sample，每个都构造 40+ 字段 JSON + 多次深拷贝
+
+三处修复：
+1. monitor.cpp PlayerValidator::inspect 里 {"data", d} 深拷贝整个 sample
+   （含 properties/attributes/vitals/equipment/motion 子树）
+   => 只复制校验需要的 26 个标量字段
+2. players.cpp position() 每个 sample 都 f.equipment.snapshot(actor_id)
+   + f.lifecycle.at(actor_id) 深拷贝 => 用版本号判断，只在变化时输出
+3. equipment.hpp/cpp 新增 versions_ 计数，apply() 内容变化时 +1

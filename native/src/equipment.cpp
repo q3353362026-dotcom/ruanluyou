@@ -120,7 +120,11 @@ bool EquipmentTracker::apply(uint32_t actor,uint32_t component,const std::string
     }
     if(r.left())throw ue::Error("equipment trailing bits");
     bool changed=it==components_.end()||next.fields!=it->second.fields||next.extra!=it->second.extra;
-    next.stamp=s;components_[component]=std::move(next);return changed;
+    next.stamp=s;components_[component]=std::move(next);
+    // 任何一次成功 apply 都让该 actor 的装备版本号 +1（即使内容没变），
+    // 这样 position() 只在装备真的被刷新时才深拷贝 snapshot。
+    if(changed)++versions_[actor];
+    return changed;
 }
 Json EquipmentTracker::snapshot(uint32_t actor)const{
     Json out=Json::object();

@@ -360,10 +360,22 @@ void Journal::emit(Json e) {
 Json PlayerValidator::inspect(const Json &event) {
     const auto &d = event.at("data");
     Json flags = Json::array();
+    // 旧实现 {"data", d} 把整个 sample 深拷贝一份（含 properties/attributes/
+    // vitals/equipment/motion 等子树）。绝密模式 244 sample/秒 × 每次完整树复制
+    // => 单核 A53 吃满 => 雷达位置滞后。
+    // 校验只需要坐标/时间/序号这几个标量，其余字段下游用不到，不再复制。
     Json result = {{"type", event.value("type", std::string()) == "self_server_sample" ? "self_server_validation" :
                             event.value("type", std::string()) == "self_sample" ? "self_validation" : "player_validation"},
-                   {"data", d}};
+                   {"data", Json::object()}};
     auto &r = result["data"];
+    // 只保留校验必需的标量 + 少量标识字段。
+    for (auto key : {"flow", "epoch", "track", "slot", "channel", "timestampMs", "poseSequence",
+                     "x", "y", "z", "yaw", "actorGuid", "playerStateGuid", "kind", "teamId",
+                     "name", "camp", "identitySource", "identityKey", "handshakeOk",
+                     "decodeCompleteness", "movementFrameComplete", "movementBlockComplete",
+                     "decodeStopReason", "sourcePacketOrdinal", "gameTime"})
+        if (d.contains(key))
+            r[key] = d[key];
     auto key = event.value("session", std::string()) + "|" + d.value("flow", std::string()) + "|" +
                std::to_string(d.value("epoch", 0)) + "|" + d.at("track").get<std::string>();
     auto ts = d.at("timestampMs").get<int64_t>();

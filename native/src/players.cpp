@@ -69,6 +69,11 @@ struct Track {
     size_t errors = 0, packet_errors = 0;
     uint32_t actor = 0, ps = 0;
     Json motion = Json::object();
+    // equipment/lifecycle 只在内容变化时才需要重新输出。每帧都深拷贝一份完整
+    // 装备表（可能几十个字段）是绝密模式单核吃满的主因之一。
+    // 用版本号判断：只有 snapshot 变化时才带，其余 sample 置空由下游沿用。
+    uint64_t equipment_version = ~0ull;
+    Json lifecycle_version = Json(nullptr);
 };
 struct Flow {
     LootTracker loot;
@@ -447,12 +452,26 @@ struct PlayerDecoder::Impl {
         data["coordinateSource"] = "UE_MovementReplicationActor_repmove4";
         data["channelSource"] = exported ? "exported_archetype" : "structural_frame_h21";
         data["sourcePacketOrdinal"] = d.value("packetOrdinal", uint64_t(0));
-        data["nativeUEPort"] = true;
         data["properties"] = std::move(fields);
         data["attributes"] = attributes(data["properties"]);
         data["vitals"] = vitals_for(f,actor_id);
-        data["equipment"] = f.equipment.snapshot(actor_id);
-        if (f.lifecycle.contains(actor_id)) data["lifecycle"] = f.lifecycle.at(actor_id);
+        // equipment / lifecycle 只在内容变化时才输出。旧实现每个 sample 都深拷贝
+        // 一份完整装备表 + lifecycle 树，绝密模式 244 sample/秒 => 单核 A53 吃满。
+        // 下游（radar_bridge.py）按 actorGuid 合并，缺字段时沿用上一次的值。
+        {
+            const uint64_t ev = f.equipment.version(actor_id);
+            if (ev != 0 && ev != track.equipment_version) {
+                track.equipment_version = ev;
+                data["equipment"] = f.equipment.snapshot(actor_id);
+            } else {
+                data["equipment"] = Json::object();
+            }
+            Json lc = f.lifecycle.contains(actor_id) ? f.lifecycle.at(actor_id) : Json(nullptr);
+            if (lc != track.lifecycle_version) {
+                track.lifecycle_version = lc;
+                data["lifecycle"] = lc;
+            }
+        }
         data["motion"] = block_complete ? track.motion : Json::object();
         track.errors = channel.errors;
         track.packet_errors = f.packet_errors;
