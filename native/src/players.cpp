@@ -814,7 +814,10 @@ struct PlayerDecoder::Impl {
             else if (probe.packed() != 0)
                 stop = "unsupported property after movement h21";
             else if (probe.left())
-                throw ue::Error("movement property trailing bits");
+                // 原实现 throw，会把整条通道打死 => Character 通道建不起来 =>
+                // actor.slot 永远 -1 => identitySource=unassociated_slot => 队伍全空。
+                // 与上面 0x10 分支保持一致：只记诊断，保留已解析坐标。
+                stop = "movement property trailing bits";
             bool block_complete = stop.empty();
             // A partial h21 match cannot establish an unknown channel's schema.
             // 注意：0x10 对象（新版本新增属性）长度未知，解析器会停在原地。
