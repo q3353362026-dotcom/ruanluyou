@@ -22,9 +22,12 @@ using Bank = std::array<uint8_t, 128>;
 // × 每秒几十移动包 => 每秒上万次树插入 => AX3600 单核 A53 吃满 => 雷达滞后。
 // 改用 unordered_map 的 basic_json（O(1) 插入）。JSON 键顺序不再固定，
 // 下游全部按 key 取值，不依赖顺序。
-using Json = nlohmann::basic_json<std::map, std::vector, std::string, bool, std::int64_t,
-                                 std::uint64_t, double, std::allocator, nlohmann::adl_serializer,
-                                 std::unordered_map>;
+// 模板参数顺序见 nlohmann/json.hpp：ObjectType, ArrayType, StringType, BooleanType,
+// NumberIntegerType, NumberUnsignedType, NumberFloatType, AllocatorType,
+// JSONSerializer, BinaryType, CustomBaseClass
+using Json = nlohmann::basic_json<std::unordered_map, std::vector, std::string, bool,
+                                 std::int64_t, std::uint64_t, double, std::allocator,
+                                 nlohmann::adl_serializer, std::vector<std::uint8_t>, void>;
 using Sink = std::function<void(Json)>;
 Bytes unhex(const std::string &s);
 std::string hex(View b);
