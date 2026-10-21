@@ -120,6 +120,14 @@ std::string profile_for(const std::string &s) {
         return "character_ai";
     if (s.find("BP_DFMCharacter") != std::string::npos || s.find("BP_SOLCharacter") != std::string::npos)
         return "character";
+    // AZ3 地图的真人角色换用 BP_AZCharacter_C（不带 BP_DFM 前缀）。
+    // 不加这条规则 -> profile 为空 -> 通道被跳过 -> MoveHandle 永不解析 ->
+    // actor.slot 恒为 -1 -> identitySource=unassociated_slot -> 队伍全空 -> 敌人显示成队友。
+    // 属性布局与 BP_DFMCharacter_C 一致（Python 参考实现 liveview.py 也是共用 char_cmds）。
+    // 必须精确匹配：同图还有 BP_InteractorContainer_AZ_NukesBackpack_C /
+    // BP_DynamicWaterSystem_AZ_C 等非角色类，宽泛匹配会把它们误判成角色。
+    if (s.find("BP_AZCharacter") != std::string::npos)
+        return "character";
     return {};
 }
 Json vitals_for(const Flow &f,uint32_t actor){
