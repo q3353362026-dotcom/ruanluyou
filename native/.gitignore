@@ -1,0 +1,6 @@
+/build*/
+/captures/
+*.key
+/tests/oracle/bin/
+/tests/oracle/obj/
+__pycache__/

@@ -1,0 +1,66 @@
+name: Build radaer-native ipk
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd rsync build-essential file wget
+
+      - name: Download OpenWrt SDK (qualcommax/ipq807x, musl, aarch64)
+        run: |
+          set -eux
+          SDK_URL="https://downloads.openwrt.org/releases/24.10.1/targets/qualcommax/ipq807x/openwrt-sdk-24.10.1-qualcommax-ipq807x_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+          wget -q "$SDK_URL" -O sdk.tar.zst
+          ls -lh sdk.tar.zst
+          mkdir -p sdk
+          tar --zstd -xf sdk.tar.zst -C sdk --strip-components=1
+          ls sdk | head -20
+
+      - name: Build package
+        run: |
+          set -eux
+          chmod +x openwrt/build-sdk.sh
+          sh openwrt/build-sdk.sh "$PWD/sdk" 2
+        env:
+          CI: "true"
+
+      - name: Collect ipk
+        if: always()
+        run: |
+          set -eux
+          mkdir -p out
+          find sdk/bin -name '*.ipk' -exec cp -v {} out/ \; || true
+          ls -lh out || true
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: radaer-ipk-${{ github.sha }}
+          path: out/*.ipk
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ github.sha }}
+          path: |
+            sdk/logs/
+            sdk/tmp/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Radaer · 战术视图</title>
+<link rel="stylesheet" href="/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/radar/view.css">
+<script src="/vendor/leaflet/leaflet.js" defer></script><script src="/radar/model.js" defer></script><script src="/radar/replay.js" defer></script><script src="/radar/view.js" defer></script></head>
+<body>
+<div id="map" aria-label="二维战术地图"></div><canvas id="overlay" aria-label="人物位置和朝向"></canvas>
+<header class="top"><a class="brand" href="/" title="返回采集控制台"><span class="brand-mark">⌁</span><span>RADAER<small>TACTICAL OBSERVER</small></span></a>
+ <nav id="mapTabs" class="map-switch" aria-label="切换底图"></nav><select id="mapSelect" class="map-select" aria-label="选择地图"></select><span id="mapTitle" class="sr-only" aria-live="polite">坐标网格</span>
+ <div class="top-actions"><span id="linkState" class="badge">连接中</span><button id="toggleReplay" type="button">回放</button><a href="/" target="_blank" rel="noopener">采集控制台 ↗</a></div></header>
+<section class="island" aria-label="可见人物统计"><div><strong id="totalCount">—</strong><span>可见目标</span></div><i></i><div><strong id="mateCount">—</strong><span>同队</span></div><div><strong id="otherCount">—</strong><span>其他队伍</span></div><i></i><div><strong id="nearest">—</strong><span>最近距离 · m</span></div></section>
+<aside id="tools" class="panel tools">
+ <div class="panel-head"><div><span class="eyebrow">VIEW SETTINGS</span><h2>视图控制</h2></div><button id="closeTools" class="icon" aria-label="收起视图控制">×</button></div>
+ <p id="mapNote" class="note">网格无需网络连接。</p>
+ <details id="replaySettings" class="replay-settings"><summary>历史回放</summary>
+ <div class="replay-picker"><select id="replayRecord" aria-label="选择采集记录"><option value="">点击刷新读取历史记录</option></select><button id="replayRefresh" type="button">刷新</button></div>
+ <button id="replayLoad" class="wide-button" type="button">载入回放</button>
+ <p id="replayMessage" class="note" role="status">从采集主机的历史记录回放，人物显示开关照常可用。</p>
+ </details>
+ <div class="section-label">显示元素</div>
+ <div class="display-toggles">
+ <label class="toggle"><span>人物名称</span><input id="names" type="checkbox" checked></label>
+ <label class="toggle"><span>干员名称</span><input id="operatorNames" type="checkbox" checked></label>
+ <label class="toggle"><span>队伍编号</span><input id="teamIds" type="checkbox" checked></label>
+ <label class="toggle"><span>手持武器</span><input id="weapons" type="checkbox" checked></label>
+ <label class="toggle"><span>头盔与护甲等级环</span><input id="armorLevels" type="checkbox" checked></label>
+ <label class="toggle"><span>距离</span><input id="distances" type="checkbox" checked></label>
+ <label class="toggle"><span>移动轨迹</span><input id="trails" type="checkbox" checked></label>
+ <label class="toggle"><span>视角方向线</span><input id="cones" type="checkbox" checked></label>
+ <label class="toggle"><span>显示同队</span><input id="mates" type="checkbox" checked></label>
+ <label class="toggle"><span>显示其他队伍</span><input id="others" type="checkbox" checked></label>
+ </div>
+ <div class="section-label">运动显示</div>
+ <label class="field"><span class="sr-only">平滑模式</span><select id="smoothing" aria-label="平滑模式"><option value="original">原版平滑 · 120 ms 趋近</option><option value="interpolate">时间插值 · 延后 120 ms</option><option value="raw">原始坐标</option></select></label>
+ <label class="toggle"><span>速度辅助预测 <small>最多 80 ms</small></span><input id="prediction" type="checkbox"></label>
+ <label class="field size-field">标记大小 <output id="sizeValue">100%</output><input id="markerSize" type="range" min="70" max="160" value="100" step="10"></label>
+ <div class="legend"><span><b class="self-dot">●</b> 本人</span><span><b class="mate-dot">●</b> 同队</span><span><b class="other-dot">●</b> 其他队伍</span><span>○ 队伍未知</span></div>
+ <p class="note health-note">头像外环完整度表示血量，灰色虚线表示血量未知。未收到血量上限时按 100 显示；精确数值见人物详情。</p>
+ <p class="note gear-note">头像内左弧为头盔，右弧为护甲；灰色虚线表示等级未知。</p>
+ <div class="tier-legend" aria-label="装备等级颜色"><span class="tier-1">1 白</span><span class="tier-2">2 绿</span><span class="tier-3">3 蓝</span><span class="tier-4">4 紫</span><span class="tier-5">5 金</span><span class="tier-6">6 红</span></div>
+</aside>
+<aside id="lootPanel" class="panel loot-panel" aria-label="物资显示管理" hidden>
+ <div class="panel-head"><div><span class="eyebrow">ITEM DISPLAY MANAGER</span><h2>物资显示管理 <span>地图可见 <b id="lootCount">0</b></span></h2></div><button id="closeLoot" class="icon" aria-label="收起物资筛选">×</button></div>
+ <div class="loot-toolbar"><label class="toggle"><span>显示物资与容器</span><input id="loot" type="checkbox" checked></label><div id="lootGrades" class="loot-grades" aria-label="稀有度筛选"></div></div>
+ <div class="loot-workspace">
+  <nav class="loot-sidebar" aria-label="物资分类">
+   <input id="lootCategorySearch" type="search" placeholder="搜索类别" aria-label="搜索物资类别">
+   <div class="loot-actions"><button id="lootAll" type="button">类别全开</button><button id="lootNone" type="button">类别全关</button></div>
+   <div id="lootCategories"></div>
+  </nav>
+  <section class="loot-content" aria-label="类别中的物资">
+   <div class="loot-content-head"><div><h3 id="lootCategoryTitle">选择类别</h3><p id="lootCategoryCount" class="note"></p></div><label class="toggle"><span>该类总开关</span><input id="lootCategoryEnabled" type="checkbox" checked></label></div>
+   <p id="lootFilterHint" class="note" role="status"></p>
+   <div class="loot-item-tools"><input id="lootSearch" type="search" placeholder="搜索本类物资名称或 ID" aria-label="搜索本类物资"><button id="lootItemsAll" type="button">本类全选</button><button id="lootItemsNone" type="button">本类全不选</button></div>
+   <div id="lootItemRows" class="loot-item-grid"></div>
+   <div class="loot-pagination"><button id="lootPrev" type="button">上一页</button><span id="lootPage" aria-live="polite"></span><button id="lootNext" type="button">下一页</button></div>
+  </section>
+ </div>
+ <div class="loot-panel-foot"><span id="lootCatalogStatus" role="status">正在加载物资目录…</span><span>类别总开关保留单项选择 · 容器按类型显示</span></div>
+</aside>
+<aside id="roster" class="panel roster">
+ <div class="panel-head"><div><span class="eyebrow">LIVE ROSTER</span><h2>人物列表 <span id="rosterCount">0</span></h2></div><button id="closeRoster" class="icon" aria-label="收起人物列表">×</button></div>
+ <div class="roster-tools"><input id="search" type="search" placeholder="搜索玩家、干员或队伍" aria-label="搜索人物"><select id="sort" aria-label="人物排序"><option value="distance">距离</option><option value="team">队伍</option></select></div>
+ <div id="rosterRows" class="roster-rows"><p class="empty-small">等待人物数据</p></div>
+ <section id="detail" class="detail" hidden><span class="eyebrow">SELECTED TARGET</span><h3 id="detailName">—</h3><div id="detailFields" class="detail-grid"></div><button id="focusSelected" class="wide-button">定位此人物</button></section>
+ <div class="panel-foot">存活人物保留最后位置 · 虚线圈标记最近收到的位置</div>
+</aside>
+<section id="emptyState" class="empty-state"><span class="empty-rings">◎</span><span class="eyebrow">READY TO OBSERVE</span><h1 id="emptyTitle">等待战斗数据</h1><p id="emptyText">在采集控制台开始任务，进入对局后自动显示。</p><a href="/" target="_blank" rel="noopener">打开采集控制台 ↗</a></section>
+<div class="orientation"><span id="northLabel">+Y</span><b>↑</b></div>
+<section id="replayBar" class="replay-bar" aria-label="回放控制" hidden>
+ <div class="replay-controls"><button id="replayPlay" type="button">播放</button><output id="replayTime">00:00 / 00:00</output><select id="replaySpeed" aria-label="回放速度"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select><button id="replayLive" type="button">返回实时</button></div>
+ <input id="replaySeek" type="range" min="0" max="1" value="0" step="1" aria-label="回放进度">
+</section>
+<nav class="dock" aria-label="地图工具"><button id="toggleTools" title="视图设置" aria-label="视图设置">☷ <span>设置</span></button><button id="follow" class="active" aria-label="跟随本人">◎ <span>跟随本人</span></button><button id="fit" aria-label="显示全体">⌗ <span>全体</span></button><i></i><button id="zoomIn" aria-label="放大">＋</button><button id="zoomOut" aria-label="缩小">−</button><i></i><button id="toggleLoot" title="物资筛选" aria-label="物资筛选">◇ <span>物资</span></button><button id="toggleRoster" aria-label="人物列表">≡ <span>人物</span></button><button id="fullscreen" title="全屏" aria-label="全屏">⛶</button></nav>
+<div id="mapWarning" class="map-warning" hidden>当前可见区域有底图图片未加载，缩放或切换地图可重试。</div>
+<footer class="telemetry"><div><span class="live-dot"></span><strong id="battleStatus">等待连接</strong><small id="modeLabel">实时数据</small></div><div><span>解密</span><b id="decryptHz">—</b><small>包/s</small></div><div><span>坐标</span><b id="coordinateHz">—</b><small>Hz</small></div><div><span>画面</span><b id="fps">—</b><small>FPS / 120</small></div><div class="self-speed"><span>本人速度</span><b id="selfSpeed">—</b><small>m/s</small></div><div id="selfSource" class="source">等待本人数据</div></footer>
+</body></html>

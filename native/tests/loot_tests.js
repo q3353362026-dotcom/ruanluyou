@@ -1,0 +1,35 @@
+'use strict';
+const assert=require('node:assert/strict'),T=require('../webui/radar/model.js'),catalog=require('../webui/radar/items.json');
+const items=new T.Items();items.load(catalog);
+assert.equal(items.entries.size,3456);
+const pearl=items.get('15080050142');assert.equal(pearl.name,'海洋之泪');assert.equal(pearl.grade,6);assert.equal(pearl.color,'#ff4d58');
+assert.equal(items.categories.get(pearl.category).name,'工艺藏品');
+for(let grade=1;grade<=6;grade++){
+ const entry=[...items.entries.values()].find(v=>v.grade===grade);assert.ok(entry);assert.equal(entry.color,T.rarityColors[grade]);
+}
+assert.equal(items.get('999999999999').color,'#a9b6c6');
+const row={actorGuid:1,itemId:'15080050142',present:true,x:100,y:200,z:0,flow:'a>b',epoch:1,timestampMs:1};
+const capture={running:true,battle:{status:'live',flow:'a>b',epoch:1},loot:{1:row}};
+assert.equal(items.rows(capture,{}).length,1,'stationary/dormant items do not need repeated position updates');
+assert.equal(items.rows(capture,{loot:false}).length,0);
+assert.equal(items.rows(capture,{lootCategories:{[pearl.category]:false}}).length,0);
+assert.equal(items.rows(capture,{lootGrades:{6:false}}).length,0);
+assert.equal(items.rows(capture,{lootGroups:{'收集品':false}}).length,0,'group master filters descendants');
+assert.equal(items.rows(capture,{lootItems:{'15080050142':false}}).length,0,'individual item filter');
+assert.equal(items.rows(capture,{lootItems:{'15080050142':true},lootGroups:{'收集品':false}}).length,0,'item enabled cannot bypass group switch');
+assert.equal(items.rows(capture,{lootItems:{'15080050142':false},lootGroups:{'收集品':true},lootCategories:{[pearl.category]:true}}).length,0,'reopening category keeps individual choice');
+for(const delta of [{present:false},{epoch:2},{flow:'old'},{x:NaN},{y:3000000},{itemId:null}])assert.equal(items.rows({...capture,loot:{1:{...row,...delta}}},{}).length,0);
+for(const status of ['idle','waiting','stopped'])assert.equal(items.rows({...capture,battle:{...capture.battle,status}},{}).length,0);
+assert.equal(items.rows({...capture,running:false},{}).length,0);
+assert.equal([...items.categories.keys()][0],'containers','containers stay at the top after catalog loading');
+assert.equal([...new T.Items().categories.keys()][0],'containers','available before catalog loads');
+const boxes={...capture,loot:Object.fromEntries([...items.containers.keys()].map((type,i)=>[i,{...row,actorGuid:i+10,itemId:null,kind:'container',containerType:type}]))};
+assert.equal(items.rows(boxes,{}).length,5);
+assert.equal(items.rows(boxes,{lootGrades:{0:false,1:false,2:false,3:false,4:false,5:false,6:false}}).length,5,'boxes have no inferred item rarity');
+assert.equal(items.rows(boxes,{lootItems:{'container:boss_death':false}}).length,4);
+for(const pref of [{loot:false},{lootGroups:{'容器':false}},{lootCategories:{containers:false}}])assert.equal(items.rows(boxes,pref).length,0);
+assert.equal(items.rows({...boxes,battle:{...boxes.battle,epoch:2}},{}).length,0);
+assert.equal(items.rows({...boxes,running:false},{}).length,0);
+assert.equal(items.rows({...capture,loot:{1:{...row,itemId:null,kind:'container',containerType:'invented'}}},{}).length,0,'unknown container tags never invent a type');
+console.log('Containers: pinned category, five independent switches, grade independence and session isolation passed');
+console.log('Loot catalog: 3456 names, rarity colors, collection subtypes, category/grade switches, stationary retention and session isolation passed');

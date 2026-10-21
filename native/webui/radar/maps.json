@@ -1,0 +1,170 @@
+{
+  "default": "daba",
+  "maps": [
+    {
+      "key": "daba",
+      "name": "零号大坝",
+      "bj": 128,
+      "rotate": 0,
+      "width": 81086.304688,
+      "height": 80988.5,
+      "centerX": 358155.6875,
+      "centerY": 750191.75,
+      "minZoom": 3,
+      "initZoom": 3,
+      "initX": -85,
+      "initY": 110,
+      "tileUrl": "https://game.gtimg.cn/images/dfm/cp/a20240729directory/img/map_db/{z}_{x}_{y}.jpg",
+      "tileSize": 256,
+      "maxNativeZoom": 4,
+      "bounds": [
+        [
+          -180,
+          0
+        ],
+        [
+          0,
+          250
+        ]
+      ]
+    },
+    {
+      "key": "cgxg",
+      "minNativeZoom": 2,
+      "name": "长弓溪谷",
+      "bj": 128,
+      "rotate": 90,
+      "width": 112800,
+      "height": 112800,
+      "centerX": 330551.75,
+      "centerY": 639913.875,
+      "minZoom": 3,
+      "initZoom": 3,
+      "initX": -135,
+      "initY": 110,
+      "tileUrl": "https://game.gtimg.cn/images/dfm/cp/a20240729directory/img/map_yc/{z}_{x}_{y}.jpg",
+      "tileSize": 256,
+      "maxNativeZoom": 4,
+      "bounds": [
+        [
+          -250,
+          0
+        ],
+        [
+          0,
+          250
+        ]
+      ]
+    },
+    {
+      "key": "htjd",
+      "minNativeZoom": 2,
+      "name": "航天基地",
+      "bj": 128,
+      "rotate": 0,
+      "width": 65442.871094,
+      "height": 65442.871094,
+      "centerX": 669337,
+      "centerY": 446449.75,
+      "minZoom": 3,
+      "initZoom": 3,
+      "initX": -115,
+      "initY": 110,
+      "tileUrl": "https://game.gtimg.cn/images/dfm/cp/a20240729directory/img/map_htjd/{z}_{x}_{y}.jpg",
+      "tileSize": 256,
+      "maxNativeZoom": 4,
+      "bounds": [
+        [
+          -250,
+          0
+        ],
+        [
+          0,
+          250
+        ]
+      ]
+    },
+    {
+      "key": "bks",
+      "minNativeZoom": 2,
+      "name": "巴克什",
+      "bj": 128,
+      "rotate": 0,
+      "width": 60000,
+      "height": 60000,
+      "centerX": 380000,
+      "centerY": 456000,
+      "minZoom": 3,
+      "initZoom": 3,
+      "initX": -110,
+      "initY": 110,
+      "tileUrl": "https://game.gtimg.cn/images/dfm/cp/a20240729directory/img/map_bks2/{z}_{x}_{y}.jpg",
+      "tileSize": 256,
+      "maxNativeZoom": 4,
+      "bounds": [
+        [
+          -230,
+          0
+        ],
+        [
+          0,
+          250
+        ]
+      ]
+    },
+    {
+      "key": "cxjy",
+      "name": "潮汐监狱",
+      "bj": 128,
+      "rotate": 0,
+      "width": 36596.421875,
+      "height": 36596.421875,
+      "centerX": 50383.464844,
+      "centerY": 51155.902344,
+      "minZoom": 2.5,
+      "initZoom": 2.5,
+      "initX": -135,
+      "initY": 150,
+      "tileUrl": "https://game.gtimg.cn/images/dfm/cp/a20240729directory/img/map_cxjy/{z}_{x}_{y}.jpg",
+      "tileSize": 256,
+      "maxNativeZoom": 4,
+      "bounds": [
+        [
+          -230,
+          0
+        ],
+        [
+          0,
+          250
+        ]
+      ]
+    },
+    {
+      "key": "az3",
+      "name": "AZ3",
+      "bj": 128,
+      "rotate": -90,
+      "width": 80999.179688,
+      "height": 80831.398438,
+      "centerX": 197518.90625,
+      "centerY": 204814.046875,
+      "minZoom": 2.6,
+      "initZoom": 2.6,
+      "initX": -105,
+      "initY": 110,
+      "tileUrl": "https://game.gtimg.cn/images/dfm/cp/a20240729directory/img/map_az3/{z}_{x}_{y}.jpg",
+      "tileSize": 256,
+      "maxNativeZoom": 4,
+      "bounds": [
+        [
+          -230,
+          0
+        ],
+        [
+          0,
+          250
+        ]
+      ]
+    }
+  ]
+}

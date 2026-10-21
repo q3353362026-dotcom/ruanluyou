@@ -1,0 +1,8 @@
+{
+  "admin/services/radaer": {
+    "title": "Radaer 雷达",
+    "order": 65,
+    "action": { "type": "view", "path": "radaer/overview" },
+    "depends": { "acl": [ "luci-app-radaer" ], "uci": { "radaer": true } }
+  }
+}

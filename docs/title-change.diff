@@ -1,0 +1,14 @@
+Changed branch/field: embedded NvaParser.exe CArchive entry ErCore/web/ui/dock.js, tools-sub subtitle textContent
+
+--- original_nva.exe::NvaParser.exe::ErCore/web/ui/dock.js
++++ brand_host/original_nva.exe::NvaParser.exe::ErCore/web/ui/dock.js
+@@ subtitle assignment @@
+-  select(saved);document.getElementById('tools-sub').textContent='女娃免费本地解析';
++  select(saved);document.getElementById('tools-sub').textContent='佳佳Radaer';
+
+Binary layout retained:
+- embedded parser offset in host: 9959176
+- dock.js zlib block offset in parser: 2574922
+- dock.js compressed slot length: 2200 bytes
+- dock.js uncompressed length: 5310 bytes
+- original and modified host length: 73400040 bytes

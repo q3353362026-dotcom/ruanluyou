@@ -1,0 +1,3 @@
+# Only the optional recovered UE semantic decoder needs this dependency.
+# Requires CPython 3.14 to read runtime/vendor_pyc.
+numpy>=2.0,<3

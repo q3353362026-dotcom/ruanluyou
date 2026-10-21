@@ -1,0 +1,32 @@
+diff --git "a/C:\\Users\\Administrator\\Documents\\ChatGPT\\1\\full_rebuild\\original_radar_page.before_radar_controls.html" "b/C:\\Users\\Administrator\\Documents\\ChatGPT\\1\\full_rebuild\\original_radar_page.html"
+index f886b76..29a4ca2 100644
+--- "a/C:\\Users\\Administrator\\Documents\\ChatGPT\\1\\full_rebuild\\original_radar_page.before_radar_controls.html"
++++ "b/C:\\Users\\Administrator\\Documents\\ChatGPT\\1\\full_rebuild\\original_radar_page.html"
+@@ -792,7 +792,7 @@ body.mode3d .leaflet-control-zoom{display:none!important}
+ <!-- 左舷 · 功能台：设置项按板块平铺，开关即按钮 -->
+ <div id="dock" class="glass">
+   <div class="pan-head">
+-    <div class="pan-title">功能台 <span class="sub" id="tools-sub">显示与元素</span></div>
++    <div class="pan-title">功能台 <span class="sub" id="tools-sub">佳佳Radaer</span></div>
+     <button class="icon-btn" id="btn-dock-close" title="收起" aria-label="收起功能台">
+       <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+     </button>
+@@ -2923,18 +2923,5 @@ window.addEventListener("resize", () => {
+ });
+ </script>
+ 
+-<style id="radaer-desktop-controls-style">
+-#radaer-desktop-controls{position:fixed;left:12px;top:10px;z-index:2147483647;display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid rgba(0,229,255,.25);border-radius:12px;background:rgba(5,12,24,.88);backdrop-filter:blur(12px);box-shadow:0 6px 24px rgba(0,0,0,.45)}
+-#radaer-desktop-controls button{width:14px;height:14px;padding:0;border:0;border-radius:50%;cursor:pointer;box-shadow:0 0 8px rgba(255,255,255,.12)}
+-#radaer-desktop-controls .min{background:#eab308}#radaer-desktop-controls .max{background:#22c55e}#radaer-desktop-controls .close{background:#ef4444}
+-#radaer-desktop-controls .console{width:auto;height:24px;border-radius:7px;padding:0 9px;margin-left:3px;background:#0d2942;color:#67e8f9;border:1px solid rgba(0,229,255,.28);font:12px "Microsoft YaHei",sans-serif}
+-</style>
+-<div id="radaer-desktop-controls" class="pywebview-drag-region">
+-<button class="min" title="最小化"></button><button class="max" title="最大化 / 还原"></button><button class="close" title="关闭"></button><button class="console" title="返回控制台">控制台</button>
+-</div>
+-<script id="radaer-desktop-controls-script">
+-(()=>{const c=document.getElementById('radaer-desktop-controls'),call=n=>window.pywebview?.api?.[n]?.();c.querySelector('.min').onclick=()=>call('minimize');c.querySelector('.max').onclick=()=>call('toggle_maximize');c.querySelector('.close').onclick=()=>call('close');c.querySelector('.console').onclick=()=>location.href='/console';})();
+-</script>
+-
+ </body>
+  </html>

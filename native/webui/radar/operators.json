@@ -1,0 +1,165 @@
+{
+  "source": "Original item_names_cn.json operators.Name and liveview.HERO_NAME_OVERRIDE; original local PNGs",
+  "operators": {
+    "88000000001": {
+      "name": "布兰迪",
+      "portrait": null
+    },
+    "88000000002": {
+      "name": "黑蟒",
+      "portrait": null
+    },
+    "88000000003": {
+      "name": "楚潇",
+      "portrait": null
+    },
+    "88000000005": {
+      "name": "诺姆·吉布森",
+      "portrait": null
+    },
+    "88000000006": {
+      "name": "桑德森",
+      "portrait": null
+    },
+    "88000000007": {
+      "name": "安娜",
+      "portrait": null
+    },
+    "88000000009": {
+      "name": "二郎",
+      "portrait": null
+    },
+    "88000000010": {
+      "name": "丹尼尔",
+      "portrait": null
+    },
+    "88000000011": {
+      "name": "克里斯",
+      "portrait": null
+    },
+    "88000000012": {
+      "name": "胡特",
+      "portrait": null
+    },
+    "88000000014": {
+      "name": "成功结算人物",
+      "portrait": null
+    },
+    "88000000015": {
+      "name": "失败结算人物",
+      "portrait": null
+    },
+    "88000000016": {
+      "name": "萨琪娜",
+      "portrait": null
+    },
+    "88000000017": {
+      "name": "阿克希尔",
+      "portrait": null
+    },
+    "88000000018": {
+      "name": "安瓦尔",
+      "portrait": null
+    },
+    "88000000019": {
+      "name": "莱特 · 肖",
+      "portrait": null
+    },
+    "88000000020": {
+      "name": "休·加布里埃尔森",
+      "portrait": null
+    },
+    "88000000021": {
+      "name": "常安",
+      "portrait": null
+    },
+    "88000000022": {
+      "name": "克劳蒂亚 · 马图罗",
+      "portrait": null
+    },
+    "88000000023": {
+      "name": "泰勒 · 林",
+      "portrait": null
+    },
+    "88000000025": {
+      "name": "威龙",
+      "portrait": "/radar/portraits/88000000025.png"
+    },
+    "88000000026": {
+      "name": "骇爪",
+      "portrait": "/radar/portraits/88000000026.png"
+    },
+    "88000000027": {
+      "name": "蜂医",
+      "portrait": "/radar/portraits/88000000027.png"
+    },
+    "88000000028": {
+      "name": "露娜",
+      "portrait": "/radar/portraits/88000000028.png"
+    },
+    "88000000029": {
+      "name": "牧羊人",
+      "portrait": "/radar/portraits/88000000029.png"
+    },
+    "88000000030": {
+      "name": "红狼",
+      "portrait": "/radar/portraits/88000000030.png"
+    },
+    "88000000035": {
+      "name": "乌鲁鲁",
+      "portrait": "/radar/portraits/88000000035.png"
+    },
+    "88000000036": {
+      "name": "佐娅",
+      "portrait": "/radar/portraits/88000000036.png"
+    },
+    "88000000037": {
+      "name": "深蓝",
+      "portrait": "/radar/portraits/88000000037.png"
+    },
+    "88000000038": {
+      "name": "无名",
+      "portrait": "/radar/portraits/88000000038.png"
+    },
+    "88000000039": {
+      "name": "疾风",
+      "portrait": "/radar/portraits/88000000039.png"
+    },
+    "88000000040": {
+      "name": "银翼",
+      "portrait": "/radar/portraits/88000000040.png"
+    },
+    "88000000041": {
+      "name": "比特",
+      "portrait": "/radar/portraits/88000000041.png"
+    },
+    "88000000042": {
+      "name": "赤枭",
+      "portrait": "/radar/portraits/88000000042.png"
+    },
+    "88000000043": {
+      "name": "赤枭亲卫",
+      "portrait": null
+    },
+    "88000000044": {
+      "name": "赤枭亲卫",
+      "portrait": null
+    },
+    "88000000045": {
+      "name": "蝶",
+      "portrait": "/radar/portraits/88000000045.png"
+    },
+    "88000000046": {
+      "name": "回响",
+      "portrait": "/radar/portraits/88000000046.png"
+    },
+    "88000000047": {
+      "name": "液氮",
+      "portrait": "/radar/portraits/88000000047.png"
+    },
+    "88000000051": {
+      "name": "旅人",
+      "portrait": "/radar/portraits/88000000051.png"
+    }
+  }
+}

@@ -1,0 +1,506 @@
+"""Full application entry point.
+
+The shipped application has two layers.  The outer .NET single-file host owns device
+discovery, WinDivert, TGCP key capture, UDP decryption, and the JSONL journal;
+the embedded Python parser owns the semantic radar and web view.  The host is
+kept as an adjacent binary so this source entry point can reproduce the same
+capture path while the parser remains independently rebuildable.
+"""
+
+from __future__ import annotations
+
+import ctypes
+from ctypes import wintypes
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import threading
+import time
+import webbrowser
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+import webview
+
+
+BACKEND_URL = "http://127.0.0.1:17891"
+
+
+def _candidates() -> list[Path]:
+    roots = []
+    if getattr(sys, "frozen", False):
+        roots.append(Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)))
+        roots.append(Path(sys.executable).parent)
+    else:
+        source_root = Path(__file__).resolve().parent
+        project_root = source_root.parent
+        roots.extend(
+            (
+                source_root,
+                Path.cwd(),
+                project_root / "runtime" / "brand_host_login",
+                project_root / "runtime",
+            )
+        )
+    names = ("NvaCaptureHost.exe", "original_nva.exe")
+    return [root / name for root in roots for name in names]
+
+
+def locate_capture_host() -> Path:
+    configured = os.environ.get("NVA_CAPTURE_HOST")
+    if configured:
+        path = Path(configured).expanduser().resolve()
+        if path.is_file():
+            return path
+    for path in _candidates():
+        if path.is_file():
+            return path
+    raise FileNotFoundError(
+        "NvaCaptureHost.exe is not bundled; use the parser entry with --source "
+        "or place the capture host beside this executable"
+    )
+
+
+def stage_models(host: Path) -> None:
+    """Make the sibling models directory visible to the extracted host."""
+    target = host.parent / "models"
+    if (target / "manifest.json").is_file():
+        return
+
+    project_root = Path(__file__).resolve().parent.parent
+    candidates = [
+        Path.cwd() / "models",
+        project_root / "runtime" / "ErCore" / "web" / "m3d",
+    ]
+    if getattr(sys, "frozen", False):
+        candidates.append(Path(sys.executable).parent / "models")
+    candidates.append(Path(__file__).resolve().parent / "models")
+    for source in candidates:
+        if source.is_dir() and (source / "manifest.json").is_file():
+            if source.resolve() != target.resolve():
+                shutil.copytree(source, target, dirs_exist_ok=True)
+            return
+
+
+def visible_capture_root() -> Path:
+    """Keep capture output beside the user-facing executable, not in _MEIPASS."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / "captures"
+    return Path.cwd() / "captures"
+
+
+def mirror_captures(source: Path, destination: Path, stop: threading.Event) -> None:
+    """Expose live capture files through hard links and preserve them after exit."""
+    destination.mkdir(parents=True, exist_ok=True)
+    while True:
+        if source.is_dir():
+            for item in source.rglob("*"):
+                try:
+                    target = destination / item.relative_to(source)
+                    if item.is_dir():
+                        target.mkdir(parents=True, exist_ok=True)
+                        continue
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if not target.exists():
+                        try:
+                            os.link(item, target)
+                        except OSError:
+                            shutil.copy2(item, target)
+                    elif not os.path.samefile(item, target):
+                        source_stat = item.stat()
+                        target_stat = target.stat()
+                        if (
+                            source_stat.st_size != target_stat.st_size
+                            or source_stat.st_mtime_ns != target_stat.st_mtime_ns
+                        ):
+                            shutil.copy2(item, target)
+                except OSError:
+                    continue
+        if stop.is_set():
+            return
+        stop.wait(0.25)
+
+
+def prepare_hidden_console() -> None:
+    """Allocate the console required by the native host, then keep it hidden."""
+    if os.name != "nt":
+        return
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    if kernel32.GetConsoleWindow() == 0:
+        kernel32.AllocConsole()
+    window = kernel32.GetConsoleWindow()
+    if window:
+        user32.ShowWindow(window, 0)
+
+
+def enable_borderless_resize(title: str = "Radaer") -> None:
+    """Add a native thick-frame hit zone while keeping the custom chrome hidden."""
+    if os.name != "nt":
+        return
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    find = user32.FindWindowW
+    find.argtypes = (wintypes.LPCWSTR, wintypes.LPCWSTR)
+    find.restype = wintypes.HWND
+    get_style = user32.GetWindowLongPtrW
+    get_style.argtypes = (wintypes.HWND, ctypes.c_int)
+    get_style.restype = ctypes.c_ssize_t
+    set_style = user32.SetWindowLongPtrW
+    set_style.argtypes = (wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t)
+    set_style.restype = ctypes.c_ssize_t
+    set_pos = user32.SetWindowPos
+    hwnd = wintypes.HWND()
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline:
+        hwnd = find(None, title)
+        if hwnd:
+            style = int(get_style(hwnd, -16))
+            # WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU
+            style |= 0x00040000 | 0x00020000 | 0x00010000 | 0x00080000
+            set_style(hwnd, -16, style)
+            set_pos(hwnd, 0, 0, 0, 0, 0, 0x0027)
+            return
+        time.sleep(0.1)
+
+
+def inject_first_device(delay: float = 1.0) -> None:
+    """Type ``1`` and Enter into the hidden console used by the native host."""
+    if os.name != "nt":
+        return
+    time.sleep(delay)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    generic_read, generic_write = 0x80000000, 0x40000000
+    share_read, share_write = 1, 2
+    open_existing = 3
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = (
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    )
+    handle = kernel32.CreateFileW(
+        "CONIN$",
+        generic_read | generic_write,
+        share_read | share_write,
+        None,
+        open_existing,
+        0,
+        None,
+    )
+    if handle in (0, ctypes.c_void_p(-1).value):
+        return
+
+    class CharUnion(ctypes.Union):
+        _fields_ = [("UnicodeChar", wintypes.WCHAR), ("AsciiChar", wintypes.CHAR)]
+
+    class KeyEvent(ctypes.Structure):
+        _fields_ = [
+            ("KeyDown", wintypes.BOOL),
+            ("RepeatCount", wintypes.WORD),
+            ("VirtualKeyCode", wintypes.WORD),
+            ("VirtualScanCode", wintypes.WORD),
+            ("Char", CharUnion),
+            ("ControlKeyState", wintypes.DWORD),
+        ]
+
+    class EventUnion(ctypes.Union):
+        _fields_ = [("KeyEvent", KeyEvent), ("Padding", ctypes.c_byte * 16)]
+
+    class InputRecord(ctypes.Structure):
+        _fields_ = [("EventType", wintypes.WORD), ("Event", EventUnion)]
+
+    records = (InputRecord * 4)()
+    for index, (down, key, char) in enumerate(
+        ((True, 0x31, "1"), (False, 0x31, "1"), (True, 0x0D, "\r"), (False, 0x0D, "\r"))
+    ):
+        records[index].EventType = 0x0001
+        records[index].Event.KeyEvent = KeyEvent(down, 1, key, 0, CharUnion(UnicodeChar=char), 0)
+    written = wintypes.DWORD()
+    kernel32.WriteConsoleInputW.argtypes = (
+        wintypes.HANDLE,
+        ctypes.POINTER(InputRecord),
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    )
+    kernel32.WriteConsoleInputW(handle, records, len(records), ctypes.byref(written))
+    kernel32.CloseHandle(handle)
+
+
+def wait_for_server(url: str = BACKEND_URL + "/api/status", timeout: float = 20.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with urlopen(url, timeout=0.5) as response:
+                return response.status == 200
+        except (OSError, URLError):
+            time.sleep(0.2)
+    return False
+
+
+def ui_file() -> Path:
+    roots = [Path(__file__).resolve().parent]
+    if getattr(sys, "frozen", False):
+        roots.insert(0, Path(sys._MEIPASS))
+    for root in roots:
+        candidate = root / "launcher_ui.html"
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError("launcher_ui.html is missing")
+
+
+class DesktopHandler(BaseHTTPRequestHandler):
+    """Serve the desktop console and proxy the original radar backend."""
+
+    console_html = b""
+    radar_html = b""
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, *_args):
+        return None
+
+    def _send(self, status: int, body: bytes, content_type: str) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def _proxy(self, target_path: str | None = None) -> None:
+        path = target_path if target_path is not None else self.path
+        length = int(self.headers.get("Content-Length") or 0)
+        body = self.rfile.read(length) if length else None
+        request = Request(
+            BACKEND_URL + path,
+            data=body,
+            method=self.command,
+            headers={
+                key: value
+                for key, value in self.headers.items()
+                if key.lower()
+                not in {"host", "connection", "content-length", "accept-encoding"}
+            },
+        )
+        try:
+            with urlopen(request, timeout=5) as response:
+                payload = response.read()
+                self.send_response(response.status)
+                for key, value in response.headers.items():
+                    if key.lower() not in {
+                        "connection",
+                        "content-length",
+                        "content-encoding",
+                        "transfer-encoding",
+                    }:
+                        self.send_header(key, value)
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                if self.command != "HEAD":
+                    self.wfile.write(payload)
+        except HTTPError as exc:
+            payload = exc.read()
+            self._send(exc.code, payload, exc.headers.get_content_type())
+        except (OSError, URLError):
+            self._send(
+                503,
+                b'{"ok":false,"error":"capture backend is stopped"}',
+                "application/json; charset=utf-8",
+            )
+
+    def do_GET(self):
+        path = self.path.split("?", 1)[0]
+        if path in ("/", "/console"):
+            self._send(200, self.console_html, "text/html; charset=utf-8")
+            return
+        if path == "/radar":
+            self._send(200, self.radar_html, "text/html; charset=utf-8")
+            return
+        self._proxy()
+
+    def do_HEAD(self):
+        self.do_GET()
+
+    def do_POST(self):
+        self._proxy()
+
+
+def start_desktop_server() -> ThreadingHTTPServer:
+    root = ui_file().parent
+    DesktopHandler.console_html = (root / "launcher_ui.html").read_bytes()
+    radar = root / "original_radar_page.html"
+    DesktopHandler.radar_html = radar.read_bytes() if radar.is_file() else b""
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", 17892), DesktopHandler)
+    except OSError:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), DesktopHandler)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+class WindowBridge:
+    """Native actions exposed to the embedded desktop page."""
+
+    def __init__(self, host: Path, capture_root: Path, desktop_port: int):
+        self.host = host
+        self.capture_root = capture_root
+        self.desktop_port = desktop_port
+        # Keep the pywebview Window private.  pywebview recursively walks all
+        # public js_api attributes when it builds window.pywebview.api; exposing
+        # the Window object makes it enumerate the entire WinForms/WebView2
+        # object graph, which causes recursion/COM-thread errors and a white
+        # surface on startup.
+        self._window = None
+        self.process = None
+        self.maximized = False
+        self.lock = threading.RLock()
+
+    def attach(self, window, process):
+        self._window = window
+        self.process = process
+
+    def minimize(self):
+        if self._window:
+            self._window.minimize()
+        return {"ok": True}
+
+    def toggle_maximize(self):
+        if not self._window:
+            return {"ok": False, "error": "window not ready"}
+        if self.maximized:
+            self._window.restore()
+        else:
+            self._window.maximize()
+        self.maximized = not self.maximized
+        return {"ok": True, "maximized": self.maximized}
+
+    def close(self):
+        with self.lock:
+            if self.process and self.process.poll() is None:
+                self.process.terminate()
+        if self._window:
+            self._window.destroy()
+        return {"ok": True}
+
+    def open_captures(self):
+        self.capture_root.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            os.startfile(str(self.capture_root))
+        return {"ok": True, "path": str(self.capture_root)}
+
+    def cache_info(self):
+        self.capture_root.mkdir(parents=True, exist_ok=True)
+        sessions = [item for item in self.capture_root.iterdir() if item.is_dir()]
+        files = [item for item in self.capture_root.rglob("*") if item.is_file()]
+        return {
+            "ok": True,
+            "sessions": len(sessions),
+            "files": len(files),
+            "bytes": sum(item.stat().st_size for item in files),
+            "path": str(self.capture_root),
+        }
+
+    def clear_cache(self):
+        removed_files = 0
+        removed_bytes = 0
+        self.capture_root.mkdir(parents=True, exist_ok=True)
+        for item in list(self.capture_root.iterdir()):
+            try:
+                if item.is_dir():
+                    for child in item.rglob("*"):
+                        if child.is_file():
+                            removed_files += 1
+                            removed_bytes += child.stat().st_size
+                    shutil.rmtree(item, ignore_errors=True)
+                elif item.is_file():
+                    removed_files += 1
+                    removed_bytes += item.stat().st_size
+                    item.unlink(missing_ok=True)
+            except OSError:
+                continue
+        return {"ok": True, "files": removed_files, "bytes": removed_bytes}
+
+    def start_capture(self):
+        with self.lock:
+            if self.process and self.process.poll() is None:
+                return {"ok": True, "running": True}
+            prepare_hidden_console()
+            self.process = subprocess.Popen([str(self.host)], cwd=self.host.parent)
+            threading.Thread(target=inject_first_device, daemon=True).start()
+        ready = wait_for_server(timeout=20)
+        return {"ok": ready, "running": ready, "error": None if ready else "backend timeout"}
+
+    def stop_capture(self):
+        with self.lock:
+            if self.process and self.process.poll() is None:
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+        return {"ok": True, "running": False}
+
+    def capture_state(self):
+        running = bool(self.process and self.process.poll() is None)
+        return {"ok": True, "running": running}
+
+    def open_radar(self):
+        url = f"http://127.0.0.1:{self.desktop_port}/radar"
+        try:
+            webbrowser.open(url, new=1)
+            return {"ok": True, "url": url}
+        except OSError as exc:
+            return {"ok": False, "url": url, "error": str(exc)}
+
+
+def main() -> int:
+    host = locate_capture_host()
+    stage_models(host)
+    capture_root = visible_capture_root()
+    capture_stop = threading.Event()
+    capture_thread = threading.Thread(
+        target=mirror_captures,
+        args=(host.parent / "captures", capture_root, capture_stop),
+        daemon=True,
+    )
+    capture_thread.start()
+    desktop_server = start_desktop_server()
+    bridge = WindowBridge(host, capture_root, desktop_server.server_port)
+    # Use the native WinForms frame for the desktop shell.  The previous
+    # borderless + post-create Win32 style mutation raced WebView2's STA
+    # initialization on current WebView2 runtimes and left a blank surface.
+    # A native frame keeps the window draggable/resizable without touching the
+    # WebView2 controller from a worker thread.
+    window = webview.create_window(
+        "Radaer",
+        f"http://127.0.0.1:{desktop_server.server_port}/",
+        js_api=bridge,
+        width=1360,
+        height=900,
+        min_size=(900, 620),
+        frameless=False,
+        resizable=True,
+        easy_drag=False,
+    )
+    bridge.attach(window, None)
+    try:
+        webview.start(debug=False)
+        return 0
+    finally:
+        bridge.stop_capture()
+        desktop_server.shutdown()
+        desktop_server.server_close()
+        capture_stop.set()
+        capture_thread.join(timeout=2)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

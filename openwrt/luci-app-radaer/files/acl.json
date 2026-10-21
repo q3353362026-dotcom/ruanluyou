@@ -1,0 +1,13 @@
+{
+  "luci-app-radaer": {
+    "description": "Manage Radaer service and configuration",
+    "read": {
+      "ubus": { "luci.radaer": [ "status", "logs" ], "network.interface": [ "dump" ] },
+      "uci": [ "radaer", "network" ]
+    },
+    "write": {
+      "ubus": { "luci.radaer": [ "action" ] },
+      "uci": [ "radaer" ]
+    }
+  }
+}

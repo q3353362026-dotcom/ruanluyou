@@ -1,0 +1,5 @@
+* text=auto
+openwrt/** text eol=lf
+*.sh text eol=lf
+*.init text eol=lf
+Makefile text eol=lf

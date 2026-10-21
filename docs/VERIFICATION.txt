@@ -1,0 +1,170 @@
+Changed branch/field: embedded NvaParser.exe CArchive entry ErCore/web/ui/dock.js, tools-sub subtitle textContent.
+
+MODIFIED_FILE:
+C:\Users\Administrator\Documents\ChatGPT\1\full_rebuild\brand_host\original_nva.exe
+
+DIFF_FILE:
+C:\Users\Administrator\Documents\ChatGPT\1\full_rebuild\title-change.diff
+
+VERIFICATION_FILE:
+C:\Users\Administrator\Documents\ChatGPT\1\full_rebuild\VERIFICATION.txt
+
+ROLLBACK_FILE:
+C:\Users\Administrator\Documents\ChatGPT\1\full_rebuild\ROLLBACK.sh
+
+BASELINE command:
+py -3.14 verify_title_patch.py original_nva.exe "女娃免费本地解析"
+BASELINE literal output/result:
+EXPECTED_PRESENT=True
+OLD_PRESENT=True
+NEW_PRESENT=False
+RESULT=PASS
+BASELINE exit status: 0
+BASELINE SHA256:
+5906C878AD846DB46DEB3A4DF881F536C653FD4602C7370493F23005633C6E27
+
+MODIFIED command:
+py -3.14 verify_title_patch.py brand_host\original_nva.exe "佳佳Radaer"
+MODIFIED literal output/result:
+EXPECTED_PRESENT=True
+OLD_PRESENT=False
+NEW_PRESENT=True
+RESULT=PASS
+MODIFIED exit status: 0
+MODIFIED SHA256:
+54DE7057010C9DD357FAFDB566DB4E152C6759B1413B60388ED440A277EC1ADC
+
+ROLLBACK command:
+bash ROLLBACK.sh rollback_test/original_nva.exe
+ROLLBACK literal output/result:
+RESTORED_SHA256=5906C878AD846DB46DEB3A4DF881F536C653FD4602C7370493F23005633C6E27
+RESULT=PASS
+ROLLBACK exit status: 0
+
+RADAR UI / INTERNAL SOURCE FIX (current branch/field):
+The radar page's injected `radaer-desktop-controls` block (three colored
+buttons plus the 控制台 button) was removed only from the radar page. The
+functional dock, map selector, 2D/3D controls, and map renderer remain.
+The displayed subtitle is now `佳佳Radaer`. The same subtitle was patched in
+the embedded parser archive (`brand_host_login/original_nva.exe`, compressed
+`ErCore/web/ui/dock.js` slot), so the packaged EXE no longer falls back to the
+old `女娃免费本地解析` string.
+
+MODIFIED_FILE:
+C:\Users\Administrator\Documents\ChatGPT\1\full_rebuild\brand_host_login\original_nva.exe
+
+DIFF_FILE:
+C:\Users\Administrator\Documents\ChatGPT\1\full_rebuild\radar-ui.diff
+
+RADAR HTML MODIFIED_FILE:
+C:\Users\Administrator\Documents\ChatGPT\1\full_rebuild\original_radar_page.html
+
+BASELINE command:
+py -3.14 verify_radar_ui.py original_radar_page.before_radar_controls.html baseline
+BASELINE literal output/result:
+INPUT=C:\Users\Administrator\Documents\ChatGPT\1\full_rebuild\original_radar_page.before_radar_controls.html
+CONTROLS_PRESENT=True
+BRAND_PRESENT=False
+OLD_SUBTITLE_PRESENT=True
+RESULT=PASS
+BASELINE exit status: 0
+
+MODIFIED command:
+py -3.14 verify_radar_ui.py original_radar_page.html modified
+MODIFIED literal output/result:
+INPUT=C:\Users\Administrator\Documents\ChatGPT\1\full_rebuild\original_radar_page.html
+CONTROLS_PRESENT=False
+BRAND_PRESENT=True
+OLD_SUBTITLE_PRESENT=False
+RESULT=PASS
+MODIFIED exit status: 0
+
+INTERNAL SOURCE command:
+py -3.14 verify_title_patch.py brand_host_login\original_nva.exe "佳佳Radaer"
+INTERNAL SOURCE literal output/result:
+EXPECTED_PRESENT=True; OLD_PRESENT=False; NEW_PRESENT=True; RESULT=PASS
+INTERNAL SOURCE exit status: 0
+
+ROLLBACK command:
+"C:\Program Files\Git\bin\bash.exe" ROLLBACK.sh --radar-html rollback_test\radar_page.html
+ROLLBACK literal output/result:
+RESTORED_SHA256=EA431C1A766FE365EDF027873CA89713D3D6DC07DAF763CEBD09FDA69E699E6B
+RESULT=PASS
+ROLLBACK exit status: 0
+
+PACKAGED_FILE:
+C:\Users\Administrator\Desktop\DFM\Radaer.exe
+PACKAGED_SHA256:
+525734F80845ACC1B4D7278F22B1DEFC9B17D7F6E9C4EF9FD645BA4FE68B1DD5
+PACKAGED_RESULT:
+PyInstaller build completed with exit status 0; the executable archive contains
+`original_nva.exe` and the modified `original_radar_page.html`.
+RESTORED_BEHAVIOR/STATUS:
+Rollback copy contains the original controls and subtitle; the shipped EXE
+keeps the map UI and only removes the requested radar-page chrome.
+
+ROLLBACK verification command:
+py -3.14 verify_title_patch.py rollback_test\original_nva.exe "女娃免费本地解析"
+ROLLBACK verification literal output/result:
+EXPECTED_PRESENT=True
+OLD_PRESENT=True
+NEW_PRESENT=False
+RESULT=PASS
+ROLLBACK verification exit status: 0
+
+PACKAGED_FILE:
+C:\Users\Administrator\Desktop\DFM\Nva本地离线解析.exe
+PACKAGED_SHA256:
+59811D25846EBFE4DAD449A005669E57433C4AB121B1B0D1F4B62FC09431B3E5
+PACKAGED_BYTES: 578946614
+
+LIVE HTTP command:
+Invoke-WebRequest http://127.0.0.1:17891/ui/dock.js
+LIVE literal output/result:
+STATUS=200
+NEW=True
+OLD=False
+TITLE_LINE=select(saved);document.getElementById('tools-sub').textContent='佳佳Radaer            ';
+LIVE exit status: 0
+
+WHITE-SCREEN FIX (current branch/field): desktop shell WebView2 API exposure and
+window chrome. `WindowBridge.window` is now private (`_window`) so pywebview does
+not recursively enumerate the WinForms/WebView2 object graph; the launcher uses
+the native resizable frame (`frameless=False`, `resizable=True`) and no worker
+thread mutates the WebView2 window style.
+
+MODIFIED_FILE (source):
+C:\Users\Administrator\Documents\ChatGPT\1\full_rebuild\capture_launcher.MODIFIED_FILE.py
+
+DIFF_FILE (source change):
+C:\Users\Administrator\Documents\ChatGPT\1\full_rebuild\white-screen-fix.diff
+
+BASELINE command:
+py -3.14 -m py_compile full_rebuild\capture_launcher.before_gui.py
+BASELINE literal output/result:
+(no output; compilation succeeded)
+BASELINE exit status: 0
+
+MODIFIED command:
+py -3.14 -m py_compile full_rebuild\capture_launcher.py
+MODIFIED literal output/result:
+(no output; compilation succeeded)
+MODIFIED exit status: 0
+
+PACKAGING command:
+py -3.14 -m PyInstaller --noconfirm --clean --distpath full_rebuild\dist_whitefix --workpath full_rebuild\build_whitefix full_rebuild\NvaLocalRadarFull.spec
+PACKAGING literal output/result:
+Build complete! The results are available in: full_rebuild\dist_whitefix
+PACKAGING exit status: 0
+
+LIVE packaged command:
+Start-Process C:\Users\Administrator\Desktop\DFM\Radaer.exe; wait 8 seconds; capture desktop
+LIVE packaged literal output/result:
+Radaer console rendered (not white); browser radar rendered at http://127.0.0.1:17892/radar; console default state shows stopped capture.
+LIVE packaged exit status: 0
+
+ROLLBACK command (source probe):
+bash full_rebuild\ROLLBACK.sh full_rebuild\rollback_test\original_nva.exe
+ROLLBACK literal output/result:
+RESULT=PASS (original baseline SHA256 restored)
+ROLLBACK exit status: 0

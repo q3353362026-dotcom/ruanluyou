@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Radaer 控制台 · 原型</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230B1424'/%3E%3Ctext x='16' y='23' font-family='Arial Black' font-size='18' font-weight='900' fill='%2300E5FF' text-anchor='middle'%3ER%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  --desk:#05090F;
+  --win:#0B1424;
+  --card:#101D31;
+  --card-2:#0C1727;
+  --line:rgba(0,229,255,.12);
+  --line-strong:rgba(0,229,255,.28);
+  --cyan:#00E5FF;
+  --cyan-d:#0891B2;
+  --text:#E6F1FF;
+  --muted:#5E7A9E;
+  --green:#22C55E;
+  --gray:#64748B;
+  --mono:ui-monospace,"JetBrains Mono",Consolas,"SF Mono",monospace;
+  --sans:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:radial-gradient(1200px 700px at 50% -10%,#0d1f38 0%,var(--desk) 60%);
+  font-family:var(--sans);color:var(--text);
+  display:flex;align-items:flex-start;justify-content:center;
+  padding:0;min-height:100vh;overflow:auto;
+}
+/* ===== 应用窗口 ===== */
+.app{
+  width:100%;max-width:none;min-height:100vh;background:var(--win);
+  border:0;border-radius:0;
+  box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 1px rgba(0,229,255,.04),0 0 60px rgba(0,229,255,.05);
+  overflow:hidden;display:flex;flex-direction:column;
+}
+/* 标题栏 */
+.titlebar{
+  display:flex;align-items:center;gap:14px;
+  padding:14px 18px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,#0e1c31,#0b1424);
+  position:sticky;top:0;z-index:25;
+}
+.brand{display:flex;align-items:center;gap:10px}
+.brand .logo{
+  width:30px;height:30px;border-radius:8px;
+  background:linear-gradient(135deg,#0e2a44,#0a1830);
+  border:1px solid var(--line-strong);
+  display:grid;place-items:center;font-weight:900;color:var(--cyan);
+  font-family:Arial Black;font-size:16px;
+  box-shadow:0 0 12px rgba(0,229,255,.35);
+}
+.brand .name{font-size:17px;font-weight:800;letter-spacing:.5px}
+.brand .ver{font-size:12px;color:var(--muted);font-family:var(--mono)}
+.status{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--gray);transition:all .3s}
+.app.running .dot{background:var(--green);box-shadow:0 0 10px var(--green)}
+.win-btns{display:flex;gap:8px}
+.win-btns span{width:13px;height:13px;border-radius:50%;background:#2a3b55;cursor:pointer;transition:filter .15s,transform .15s}
+.win-btns span:hover{filter:brightness(1.35);transform:scale(1.08)}
+.win-btns span:nth-child(1){background:#eab308}
+.win-btns span:nth-child(2){background:#22c55e}
+.win-btns span:last-child{background:#5a3b44}
+.titlebar > .win-btns{display:none}
+.global-window-controls{position:fixed;left:0;top:0;width:100%;height:42px;z-index:100;pointer-events:none}
+.global-window-controls .win-btns{pointer-events:auto;padding:14px 18px}
+/* 通用卡片 */
+.card{
+  background:var(--card);border:1px solid var(--line);
+  border-radius:12px;
+}
+.card-title{
+  font-size:13px;color:var(--text);font-weight:700;letter-spacing:.5px;
+  padding:12px 14px;border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:8px;
+}
+.card-title::before{content:"";width:3px;height:13px;border-radius:2px;background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+/* 指标卡 */
+.body{padding:16px;display:flex;flex-direction:column;gap:14px}
+.stats{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+.stat{padding:12px 14px;position:relative;overflow:hidden}
+.stat .label{font-size:11px;color:var(--muted);letter-spacing:.5px}
+.stat .val{font-size:26px;font-weight:800;font-family:var(--mono);margin-top:4px;line-height:1}
+.stat .sub{font-size:10px;color:var(--muted);margin-top:6px;font-family:var(--mono)}
+.stat.hl .val{color:var(--cyan);text-shadow:0 0 14px rgba(0,229,255,.6)}
+.stat::after{content:"";position:absolute;right:-30px;top:-30px;width:70px;height:70px;border-radius:50%;background:radial-gradient(circle,rgba(0,229,255,.08),transparent 70%)}
+/* 主区 */
+.main-row{display:grid;grid-template-columns:1.6fr 1fr;gap:14px}
+.tabs{margin-left:auto;display:flex;gap:6px}
+.tab{
+  font-size:11px;padding:3px 10px;border-radius:6px;cursor:pointer;
+  color:var(--muted);border:1px solid transparent;font-family:var(--mono);user-select:none;
+}
+.tab.active{color:var(--cyan);background:rgba(0,229,255,.1);border-color:var(--line-strong)}
+.flows{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.flows-meta{font-size:11.5px;color:var(--muted);font-family:var(--mono)}
+.flows-meta b{color:var(--cyan);font-weight:700}
+.flows-body{
+  height:218px;border:1px dashed var(--line-strong);border-radius:10px;
+  display:grid;place-items:center;color:var(--muted);font-size:13px;
+  letter-spacing:2px;background:rgba(0,229,255,.02);
+}
+.flows-list{display:flex;flex-direction:column;gap:7px;width:100%;height:218px;overflow-y:auto;padding:4px 2px}
+.flow-row{
+  display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:12px;
+  background:var(--card-2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;
+}
+.flow-row .dir{color:var(--cyan);font-size:10px;border:1px solid var(--line-strong);border-radius:4px;padding:1px 6px;flex-shrink:0}
+.flow-row .host{color:var(--text);flex-shrink:0}
+.flow-row .arrow{color:var(--muted);flex-shrink:0}
+.flow-row .meta{margin-left:auto;color:var(--muted);font-size:10.5px;flex-shrink:0}
+/* 采集状态 */
+.probe{padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.probe-head{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted)}
+.badge{font-size:10px;padding:2px 8px;border-radius:20px;border:1px solid var(--line-strong);color:var(--muted)}
+.app.running .badge{color:var(--green);border-color:rgba(34,197,94,.4)}
+.probe-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.probe-cell{background:var(--card-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.probe-cell .k{font-size:10px;color:var(--muted)}
+.probe-cell .v{font-size:14px;font-family:var(--mono);margin-top:3px;color:var(--text)}
+.probe-cell .v.c{color:var(--cyan)}
+/* 设备表格 */
+table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5px}
+th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+th{color:var(--muted);font-weight:600;font-size:11px;background:var(--card-2)}
+tbody tr:nth-child(odd){background:rgba(255,255,255,.015)}
+tbody tr:hover{background:rgba(0,229,255,.05)}
+.foot{display:flex;align-items:center;padding:10px 14px;gap:8px;border-top:1px solid var(--line)}
+.hint{margin-left:auto;font-size:11px;color:var(--muted);font-family:var(--mono)}
+/* 按钮 */
+.btn{
+  font-size:12.5px;padding:7px 14px;border-radius:8px;cursor:pointer;
+  border:1px solid #2a4a6b;background:transparent;color:var(--text);
+  transition:all .15s;font-family:var(--sans);
+}
+.btn:hover{border-color:var(--line-strong);background:rgba(0,229,255,.06)}
+.btn.primary{
+  background:linear-gradient(135deg,var(--cyan),var(--cyan-d));color:#04202a;
+  font-weight:800;border:none;box-shadow:0 0 18px rgba(0,229,255,.4);
+}
+.btn.primary:hover{filter:brightness(1.1)}
+.btn.primary.running{background:linear-gradient(135deg,#4ade80,#16a34a);color:#052814;box-shadow:0 0 18px rgba(34,197,94,.42)}
+/* 日志 */
+.log{padding:10px 14px;height:120px;overflow-y:auto;font-family:var(--mono);font-size:11.5px;line-height:1.7}
+.log .t{color:var(--muted)}
+.log .ok{color:var(--green)}
+.log .info{color:var(--cyan)}
+.log .dim{color:#42566e}
+/* 底部操作栏 */
+.actionbar{display:flex;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid var(--line);background:#0a1322}
+.actionbar .sp{flex:1}
+/* toast */
+#toast{
+  position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(20px);
+  background:#0e2a44;border:1px solid var(--line-strong);color:var(--cyan);
+  padding:9px 18px;border-radius:10px;font-size:13px;opacity:0;pointer-events:none;
+  transition:all .25s;z-index:99;box-shadow:0 8px 30px rgba(0,0,0,.5);
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+/* ===== 登录页 ===== */
+.login-mask{
+  position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(1000px 600px at 50% 20%,#0e2440 0%,#05090f 70%);
+  transition:opacity .35s;
+}
+.login-mask.hide{opacity:0;pointer-events:none}
+.login-card{
+  width:360px;background:var(--card);border:1px solid var(--line-strong);
+  border-radius:16px;padding:36px 32px 28px;
+  box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 60px rgba(0,229,255,.08);
+  position:relative;
+}
+.login-card::before{
+  content:"";position:absolute;inset:-1px;border-radius:16px;pointer-events:none;
+  background:radial-gradient(300px 120px at 50% -10%,rgba(0,229,255,.18),transparent 70%);
+}
+.login-logo{
+  width:56px;height:56px;border-radius:14px;margin:0 auto 14px;
+  background:linear-gradient(135deg,#0e2a44,#0a1830);
+  border:1px solid var(--line-strong);display:grid;place-items:center;
+  font-family:Arial Black;font-size:30px;font-weight:900;color:var(--cyan);
+  box-shadow:0 0 24px rgba(0,229,255,.4);
+}
+.login-title{text-align:center;font-size:22px;font-weight:800;letter-spacing:1px}
+.login-sub{text-align:center;font-size:11px;color:var(--muted);margin:6px 0 24px;font-family:var(--mono)}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:11px;color:var(--muted);margin-bottom:6px;letter-spacing:.5px}
+.field input{
+  width:100%;padding:10px 12px;background:var(--card-2);
+  border:1px solid var(--line);border-radius:8px;color:var(--text);
+  font-size:13px;font-family:var(--mono);outline:none;transition:border .2s;
+}
+.field input:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(0,229,255,.12)}
+.login-btn{
+  width:100%;padding:11px;border:none;border-radius:8px;cursor:pointer;margin-top:6px;
+  background:linear-gradient(135deg,var(--cyan),var(--cyan-d));color:#04202a;
+  font-size:14px;font-weight:800;letter-spacing:2px;
+  box-shadow:0 0 20px rgba(0,229,255,.35);transition:filter .15s;
+}
+.login-btn:hover{filter:brightness(1.1)}
+.login-btn.loading{opacity:.7;pointer-events:none}
+.login-hint{text-align:center;font-size:10.5px;color:#42566e;margin-top:16px;font-family:var(--mono)}
+#logoutBtn{
+  margin-left:8px;font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer;
+  border:1px solid #2a4a6b;background:transparent;color:var(--muted);
+}
+#logoutBtn:hover{color:var(--cyan);border-color:var(--line-strong)}
+/* 响应式 */
+@media(max-width:1000px){
+  .stats{grid-template-columns:repeat(3,1fr)}
+  .main-row{grid-template-columns:1fr}
+  .body{padding:12px}
+}
+@media(max-width:620px){
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .actionbar{flex-wrap:wrap}
+}
+</style>
+</head>
+<body>
+<div class="global-window-controls pywebview-drag-region" aria-label="窗口控制">
+  <div class="win-btns">
+    <span id="win-min-top" title="最小化"></span>
+    <span id="win-max-top" title="最大化 / 还原"></span>
+    <span id="win-close-top" title="关闭"></span>
+  </div>
+</div>
+<!-- ===== 登录页 ===== -->
+<div class="login-mask" id="loginMask">
+  <div class="login-card">
+    <div class="login-logo">R</div>
+    <div class="login-title">Radaer</div>
+    <div class="login-sub">控制台 · v2.0.0</div>
+    <div class="field">
+      <label>账号</label>
+      <input type="text" id="liUser" placeholder="请输入账号" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>密码</label>
+      <input type="password" id="liPass" placeholder="请输入密码">
+    </div>
+    <button class="login-btn" id="liBtn">登 录</button>
+    <div class="login-hint">本地登录：输入非空账号和密码即可进入</div>
+  </div>
+</div>
+
+<div class="app" id="app">
+  <!-- 标题栏 -->
+  <div class="titlebar pywebview-drag-region">
+    <div class="win-btns" aria-label="窗口控制">
+      <span id="win-min" title="最小化"></span>
+      <span id="win-max" title="最大化 / 还原"></span>
+      <span id="win-close" title="关闭"></span>
+    </div>
+    <div class="brand">
+      <div class="logo">R</div>
+      <span class="name">Radaer</span>
+      <span class="ver">v2.0.0</span>
+    </div>
+    <div class="status">
+      <span class="dot"></span><span id="statusText">已停止</span>
+      <button id="logoutBtn">退出登录</button>
+    </div>
+  </div>
+
+  <div class="body">
+    <!-- 指标卡 -->
+    <div class="stats">
+      <div class="card stat"><div class="label">包总数</div><div class="val" id="m-pkts">0</div><div class="sub">C2S / S2C</div></div>
+      <div class="card stat"><div class="label">流量</div><div class="val" id="m-bytes">0 B</div><div class="sub">UDP payload</div></div>
+      <div class="card stat"><div class="label">批次数</div><div class="val" id="m-batch">0</div><div class="sub">等待数据</div></div>
+      <div class="card stat"><div class="label">活跃流</div><div class="val" id="m-flows">0</div><div class="sub">尚无数据包</div></div>
+      <div class="card stat hl"><div class="label">实时包速</div><div class="val" id="m-pps">0.0</div><div class="sub">pps · 最近采样</div></div>
+      <div class="card stat hl"><div class="label">实时带宽</div><div class="val" id="m-bps">0 B/s</div><div class="sub">最近采样</div></div>
+    </div>
+
+    <!-- 主区：雷达 + 采集状态 -->
+    <div class="main-row">
+      <div class="card">
+        <div class="card-title">网络流关系
+          <div class="tabs">
+            <div class="tab active" data-dir="C2S">C2S</div>
+            <div class="tab" data-dir="S2C">S2C</div>
+          </div>
+        </div>
+        <div class="flows">
+          <div class="flows-meta" id="flowsMeta">0个本地端点 / 0个远端端点</div>
+          <div class="flows-body" id="flowsBody">等待活动流</div>
+          <div class="flows-list" id="flowsList" style="display:none"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">采集状态</div>
+        <div class="probe">
+          <div class="probe-head"><span id="probeNote">尚无状态</span><span class="badge" id="probeBadge">未启动</span></div>
+          <div class="probe-grid">
+            <div class="probe-cell"><div class="k">设备</div><div class="v" id="p-dev">A</div></div>
+            <div class="probe-cell"><div class="k">设备 IP</div><div class="v">192.168.137.131</div></div>
+            <div class="probe-cell"><div class="k">已采集包</div><div class="v" id="p-col">0</div></div>
+            <div class="probe-cell"><div class="k">采集字节</div><div class="v" id="p-bytes">0 B</div></div>
+            <div class="probe-cell"><div class="k">队列</div><div class="v" id="p-queue">0</div></div>
+            <div class="probe-cell"><div class="k">丢弃</div><div class="v c" id="p-drop">0</div></div>
+            <div class="probe-cell"><div class="k">已发批次</div><div class="v" id="p-batch">0</div></div>
+            <div class="probe-cell"><div class="k">已发包</div><div class="v" id="p-sent">0</div></div>
+            <div class="probe-cell"><div class="k">抓包延迟</div><div class="v" id="p-caplat">-</div></div>
+            <div class="probe-cell"><div class="k">发包延迟</div><div class="v" id="p-sndlat">-</div></div>
+            <div class="probe-cell"><div class="k">成功包速</div><div class="v c" id="p-pps">0.0</div></div>
+            <div class="probe-cell"><div class="k">发送线字节</div><div class="v" id="p-line">0 B</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 设备表 -->
+    <div class="card">
+      <div class="card-title">房间 / 手机设备</div>
+      <table>
+        <colgroup>
+          <col style="width:8%"><col style="width:9%"><col style="width:10%">
+          <col style="width:20%"><col style="width:26%"><col style="width:9%"><col style="width:18%">
+        </colgroup>
+        <thead><tr><th>启用</th><th>状态</th><th>名称</th><th>手机 IP</th><th>Provider code</th><th>地图</th><th>队列/已发送/丢弃</th></tr></thead>
+        <tbody id="devBody">
+          <tr><td>是</td><td>待机</td><td>A</td><td>192.168.137.131</td><td>431025D9FA8CF904</td><td>auto</td><td>0 / 0 / 0</td></tr>
+        </tbody>
+      </table>
+      <div class="foot">
+        <button class="btn" id="b-add">添加</button>
+        <button class="btn" id="b-edit">编辑</button>
+        <button class="btn" id="b-del">删除</button>
+        <button class="btn" id="b-toggle">启用 / 停用</button>
+        <span class="hint">房间 1/10 · 已配置 1</span>
+      </div>
+    </div>
+
+    <!-- 日志 -->
+    <div class="card">
+      <div class="card-title">运行日志
+        <div class="tabs"><div class="tab" id="b-clear">清理日志</div></div>
+      </div>
+      <div class="log" id="log"><div><span class="dim">[系统] 控制台就绪，等待采集指令。</span></div></div>
+    </div>
+  </div>
+
+  <!-- 底部操作栏 -->
+  <div class="actionbar">
+    <button class="btn" id="b-pcap">打开 PCAP 目录</button>
+    <button class="btn" id="b-cache">缓存管理</button>
+    <span class="sp"></span>
+    <button class="btn primary" id="b-start">开始采集</button>
+    <button class="btn" id="b-stop">停止</button>
+    <button class="btn" id="b-radar">打开最新雷达</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const app = $('app');
+let running = false;
+let dir = 'C2S';
+let lastStatus = null;
+let lastPackets = 0;
+let lastBytes = 0;
+let lastTime = performance.now();
+let logKeys = new Set();
+let captureRunning = false;
+
+let toastT;
+function toast(msg){
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 1800);
+}
+function logLine(msg, cls='dim'){
+  const el = document.createElement('div');
+  const now = new Date().toLocaleTimeString('zh-CN',{hour12:false});
+  el.innerHTML = `<span class="t">[${now}]</span> <span class="${cls}">${String(msg).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</span>`;
+  const box = $('log'); box.appendChild(el); box.scrollTop = box.scrollHeight;
+}
+function fmtBytes(value){
+  let b = Number(value) || 0;
+  if(b < 1024) return `${b.toFixed(0)} B`;
+  if(b < 1048576) return `${(b/1024).toFixed(1)} KB`;
+  if(b < 1073741824) return `${(b/1048576).toFixed(2)} MB`;
+  return `${(b/1073741824).toFixed(2)} GB`;
+}
+function sumPackets(flows){
+  return flows.reduce((total, flow) => total + Object.values(flow.packets || {}).reduce((n,v)=>n + (Number(v)||0),0), 0);
+}
+function sumField(flows, field){ return flows.reduce((n, f)=>n + (Number(f[field]) || 0), 0); }
+function renderFlows(flows){
+  const local = [...new Set(flows.map(f=>f.local).filter(Boolean))];
+  const remote = [...new Set(flows.map(f=>f.remote).filter(Boolean))];
+  $('flowsMeta').innerHTML = `<b>${local.length}</b>个本地端点 / <b>${remote.length}</b>个远端端点`;
+  if(!flows.length){ $('flowsBody').style.display='grid'; $('flowsList').style.display='none'; return; }
+  $('flowsBody').style.display='none'; $('flowsList').style.display='flex';
+  $('flowsList').innerHTML = flows.map(flow=>{
+    const packets = flow.packets || {};
+    const count = dir === 'C2S' ? (packets.request || 0) : (packets.response || 0);
+    return `<div class="flow-row"><span class="dir">${dir}</span><span class="host">${flow.local || '-'}</span><span class="arrow">→</span><span class="host">${flow.remote || '-'}</span><span class="meta">${count.toLocaleString()} packets · flow ${flow.flow || '-'}</span></div>`;
+  }).join('');
+}
+function render(status, state){
+  const flows = status.flows || [];
+  const stats = status.stats || {};
+  const counts = status.counts || {};
+  const rates = status.rates || {};
+  const transport = status.transport || {};
+  const transportPackets = Number(transport.udpUpPackets || 0) + Number(transport.udpDownPackets || 0);
+  const transportBytes = Number(transport.udpUpBytes || 0) + Number(transport.udpDownBytes || 0);
+  const packets = transportPackets || sumPackets(flows) || Number(stats.plaintextPackets || stats.inputEvents || 0);
+  const bytes = transportBytes || Number(status.journalReadBytes || 0);
+  const now = performance.now();
+  const seconds = Math.max(.25, (now-lastTime)/1000);
+  const bps = Math.max(0, (bytes-lastBytes)/seconds);
+  const sampledPps = Math.max(0, (packets-lastPackets)/seconds);
+  const pps = Number(rates.up || 0) + Number(rates.down || 0) || sampledPps;
+  lastPackets = packets; lastBytes = bytes; lastTime = now;
+  const entities = state.entities || [];
+  const local = flows[0]?.local || '-';
+  const drop = sumField(flows, 'packetErrors') + Number(transport.invalidPackets || 0) + Number(transport.packetSendErrors || 0) + Number(transport.packetReceiveErrors || 0);
+  const batches = sumField(flows, 'logicalBunches');
+  $('m-pkts').textContent = packets.toLocaleString();
+  $('m-bytes').textContent = fmtBytes(bytes);
+  $('m-batch').textContent = batches.toLocaleString();
+  $('m-flows').textContent = Number(transport.udpBoundFlows || flows.length).toLocaleString();
+  $('m-pps').textContent = pps.toFixed(1);
+  $('m-bps').textContent = `${fmtBytes(bps)}/s`;
+  $('p-dev').textContent = local === '-' ? '待机' : '本机';
+  $('p-col').textContent = packets.toLocaleString();
+  $('p-bytes').textContent = fmtBytes(bytes);
+  $('p-queue').textContent = Number(transport.pendingPackets || 0).toLocaleString();
+  $('p-drop').textContent = drop.toLocaleString();
+  $('p-batch').textContent = batches.toLocaleString();
+  $('p-sent').textContent = (Number(transport.redirectedUp || 0) + Number(transport.redirectedDown || 0)).toLocaleString();
+  $('p-caplat').textContent = '-';
+  $('p-sndlat').textContent = '-';
+  $('p-pps').textContent = pps.toFixed(1);
+  $('p-line').textContent = fmtBytes(bytes);
+  $('flowsMeta').title = `人物 ${counts.human || 0} · AI ${counts.bot || 0} · 实体 ${entities.length}`;
+  renderFlows(flows);
+  const ended = Boolean(status.ended);
+  setCaptureUi(captureRunning && !ended);
+  const stateStatus = state.status || (ended ? 'stopped' : 'live');
+  const rowStatus = stateStatus === 'live' ? '运行中' : stateStatus === 'waiting' ? '等待数据' : '已停止';
+  $('devBody').innerHTML = `<tr><td>是</td><td>${rowStatus}</td><td>A</td><td>${local}</td><td>本地解析核心</td><td>auto</td><td>0 / ${packets.toLocaleString()} / ${drop.toLocaleString()}</td></tr>`;
+  if(status.error){
+    const key = `error:${status.error}`;
+    if(!logKeys.has(key)){ logKeys.add(key); logLine(status.error, 'info'); }
+  }
+  if(lastStatus === null) logLine('已连接本地解析核心，状态接口正常。', 'ok');
+  lastStatus = status;
+}
+function setCaptureUi(active){
+  running = Boolean(active);
+  app.classList.toggle('running', running);
+  $('statusText').textContent = running ? '运行中' : '已停止';
+  $('probeNote').textContent = running ? '采集中' : '采集已停止';
+  $('probeBadge').textContent = running ? '采集中' : '已停止';
+  $('b-start').textContent = running ? '采集中' : '开始采集';
+  $('b-start').classList.toggle('running', running);
+}
+async function poll(){
+  try{
+    if(window.pywebview?.api?.capture_state){
+      const nativeState = await window.pywebview.api.capture_state();
+      captureRunning = Boolean(nativeState?.running);
+    }
+  }catch(_error){}
+  if(!captureRunning){ setCaptureUi(false); return; }
+  try{
+    const stamp = `?t=${Date.now()}`;
+    const [statusResponse, stateResponse] = await Promise.all([
+      fetch(`/api/status${stamp}`, {cache:'no-store'}),
+      fetch(`/api/state${stamp}`, {cache:'no-store'})
+    ]);
+    if(!statusResponse.ok) throw new Error(`status ${statusResponse.status}`);
+    const status = await statusResponse.json();
+    const state = stateResponse.ok ? await stateResponse.json() : {};
+    render(status, state);
+  }catch(error){
+    if(lastStatus !== 'offline') logLine('等待本地解析核心连接…', 'dim');
+    lastStatus = 'offline';
+    setCaptureUi(false);
+  }
+}
+function doLogin(){
+  const u = $('liUser').value.trim(), p = $('liPass').value.trim();
+  if(!u){ toast('请输入账号'); $('liUser').focus(); return; }
+  if(!p){ toast('请输入密码'); $('liPass').focus(); return; }
+  const btn = $('liBtn'); btn.classList.add('loading'); btn.textContent = '登录中…';
+  setTimeout(()=>{ $('loginMask').classList.add('hide'); btn.classList.remove('loading'); btn.textContent = '登 录'; logLine(`账号 ${u} 登录成功。`, 'ok'); poll(); }, 420);
+}
+$('liBtn').onclick = doLogin;
+$('liPass').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+$('logoutBtn').onclick = ()=>{ $('liUser').value=''; $('liPass').value=''; $('loginMask').classList.remove('hide'); $('liUser').focus(); };
+document.querySelectorAll('.tab[data-dir]').forEach(t=>t.onclick=()=>{ document.querySelectorAll('.tab[data-dir]').forEach(x=>x.classList.remove('active')); t.classList.add('active'); dir=t.dataset.dir; renderFlows(lastStatus?.flows || []); toast(`方向：${dir}`); });
+async function nativeCall(method, ...args){
+  if(!window.pywebview || !window.pywebview.api || typeof window.pywebview.api[method] !== 'function'){
+    toast('桌面宿主尚未就绪');
+    return null;
+  }
+  try { return await window.pywebview.api[method](...args); }
+  catch(error){ logLine(`${method} 操作失败：${error}`, 'info'); return null; }
+}
+$('win-min').onclick = ()=>nativeCall('minimize');
+$('win-max').onclick = ()=>nativeCall('toggle_maximize');
+$('win-close').onclick = ()=>nativeCall('close');
+$('win-min-top').onclick = ()=>nativeCall('minimize');
+$('win-max-top').onclick = ()=>nativeCall('toggle_maximize');
+$('win-close-top').onclick = ()=>nativeCall('close');
+$('b-clear').onclick = ()=>{ $('log').innerHTML=''; logKeys.clear(); logLine('日志已清空。','dim'); };
+$('b-start').onclick = async ()=>{
+  if(captureRunning){
+    const opened = await nativeCall('open_radar');
+    if(opened?.ok) toast('已在浏览器打开雷达');
+    return;
+  }
+  const result = await nativeCall('start_capture');
+  if(result?.ok){
+    captureRunning=true; setCaptureUi(true);
+    const opened = await nativeCall('open_radar');
+    toast(opened?.ok ? '采集已启动，雷达已在浏览器打开' : '采集已启动');
+  }
+  else toast('采集核心启动超时');
+};
+$('b-stop').onclick = async ()=>{
+  const result = await nativeCall('stop_capture');
+  if(result?.ok){ captureRunning=false; setCaptureUi(false); logLine('采集已停止。','info'); toast('采集已停止'); }
+};
+$('b-radar').onclick = async ()=>{
+  const result = await nativeCall('open_radar');
+  if(result?.ok) toast('已在浏览器打开最新雷达');
+};
+$('b-pcap').onclick = async ()=>{ const result = await nativeCall('open_captures'); if(result?.ok) toast(`已打开 PCAP 目录：${result.path}`); };
+$('b-cache').onclick = async ()=>{
+  const info = await nativeCall('cache_info');
+  if(!info?.ok) return;
+  const message = `缓存会话 ${info.sessions} 个，文件 ${info.files} 个，大小 ${fmtBytes(info.bytes)}。\n\n确定要清理缓存吗？`;
+  if(window.confirm(message)){
+    const result = await nativeCall('clear_cache');
+    if(result?.ok) toast(`已清理 ${result.files} 个缓存文件`);
+  }
+};
+$('b-add').onclick = ()=> toast('本地单机模式无需添加设备');
+$('b-edit').onclick = ()=> toast('设备由抓包核心自动识别');
+$('b-del').onclick = ()=> toast('本地默认设备不可删除');
+$('b-toggle').onclick = ()=> toast('采集状态由内置核心管理');
+setInterval(poll, 1000);
+poll();
+</script>
+</body>
+</html>
