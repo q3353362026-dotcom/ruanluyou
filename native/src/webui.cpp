@@ -76,6 +76,7 @@ struct Captures {
         o.max_log_bytes = number(j, "maxLogBytes", unsigned(default_journal_max_bytes),
                                  unsigned(min_journal_max_bytes), unsigned(max_journal_max_bytes));
         o.shared_host_ip = string_value(j, "hostIp");
+        o.shared_if_index = number(j, "ifIndex", 0, 0, 4294967295u);
         o.client_ip = string_value(j, "clientIp");
         o.device = string_value(j, "device", o.client_ip);
         if (o.device.empty() || o.device.size() > 80)
