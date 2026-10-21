@@ -986,7 +986,10 @@ struct PlayerDecoder::Impl {
                 if (!f.channels.contains(id) && f.channels.size() >= 2048)
                     throw ue::Error("channel capacity");
                 auto &c = f.channels[id];
-                if (c.last_time && now - c.last_time > 2000 && (c.partial || !c.queue.empty())) {
+                // 通道 2 秒没数据就清空队列 -> 判为过期。
+                // 开局/换图时包量大、处理慢，2 秒太紧，会把还在排队的新数据一起清掉。
+                // 放宽到 5 秒：正常对局每个通道每秒都有包，5 秒足够区分「真的断了」。
+                if (c.last_time && now - c.last_time > 5000 && (c.partial || !c.queue.empty())) {
                     c.partial.reset();
                     c.queue.clear();
                     c.delivered.reset();
@@ -1015,8 +1018,20 @@ struct PlayerDecoder::Impl {
                 if (!c.delivered)
                     c.delivered = seq - 1;
                 if (seq > *c.delivered + 1) {
-                    if (c.queue.size() >= 64 || f.buffered() + b.payload.size() > 8 * 1024 * 1024)
-                        throw ue::Error("reliable reorder queue capacity@" + std::to_string(id));
+                    // 开局/换图时游戏会一次性批量同步所有实体（几十个玩家的完整
+                    // 初始状态），可靠包瞬间涌进来，64 个槽根本不够 -> 队列满 ->
+                    // 抛异常 -> 该通道整段丢弃 -> 雷达开局十几秒没数据。
+                    // 改成：
+                    //   1) 容量提到 512（够覆盖一次全量同步）
+                    //   2) 满了不抛异常，而是丢掉最旧的、保留最新的（新的更有价值）
+                    constexpr size_t kQueueCap = 512;
+                    if (c.queue.size() >= kQueueCap) {
+                        // 丢掉队列里最小的 seq（最旧的），腾出位置
+                        c.queue.erase(c.queue.begin());
+                        ++duplicates;  // 计入丢弃统计
+                    }
+                    if (f.buffered() + b.payload.size() > 8 * 1024 * 1024)
+                        throw ue::Error("flow buffer capacity@" + std::to_string(id));
                     c.queue.try_emplace(seq, Queued{std::move(b), e, seq});
                     continue;
                 }
