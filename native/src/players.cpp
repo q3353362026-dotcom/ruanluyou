@@ -1070,6 +1070,18 @@ struct PlayerDecoder::Impl {
             }
             if (high == f.packet_high.end() || packet_seq > high->second)
                 f.packet_high[direction] = packet_seq;
+            // 开局爆发时内核丢包（实测 dropsTotal/packetsTotal = 24%），UE 可靠通道
+            // 序列号因此断裂，队列里堆满「等缺失包」的旧数据。等它们补齐时玩家早已
+            // 跑远 => 雷达显示十几秒前的位置（开局最严重，之后慢慢恢复）。
+            //
+            // 玩家位置是覆盖式语义：旧移动包没有任何价值。所以当包序号落后当前
+            // 已处理最高序号超过 STALE_WINDOW 时直接丢弃，不再入队等待。
+            // 这样丢包只会造成位置跳变，不会造成持续滞后。
+            static constexpr int64_t STALE_WINDOW = 32;
+            if (high != f.packet_high.end() && packet_seq + STALE_WINDOW < high->second) {
+                ++duplicates;
+                return;
+            }
             for (auto &b : p.bunches) {
                 // Keep independent upstream channels; only downstream updates produce remote samples.
                 uint32_t id = b.channel + (direction == "up" ? 32768 : 0);
