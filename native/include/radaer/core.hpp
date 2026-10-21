@@ -10,13 +10,21 @@
 #include <set>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 namespace radaer {
 using Bytes = std::vector<uint8_t>;
 using View = std::span<const uint8_t>;
 using Key = std::array<uint8_t, 16>;
 using Bank = std::array<uint8_t, 128>;
-using Json = nlohmann::json;
+// nlohmann::json 默认用 std::map 存对象：每次 obj["k"]=v 是 O(log n) 红黑树插入
+// + std::string 比较 + 节点分配。player_sample 每帧写 40+ 字段，绝密模式 18 人
+// × 每秒几十移动包 => 每秒上万次树插入 => AX3600 单核 A53 吃满 => 雷达滞后。
+// 改用 unordered_map 的 basic_json（O(1) 插入）。JSON 键顺序不再固定，
+// 下游全部按 key 取值，不依赖顺序。
+using Json = nlohmann::basic_json<std::map, std::vector, std::string, bool, std::int64_t,
+                                 std::uint64_t, double, std::allocator, nlohmann::adl_serializer,
+                                 std::unordered_map>;
 using Sink = std::function<void(Json)>;
 Bytes unhex(const std::string &s);
 std::string hex(View b);

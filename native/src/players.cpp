@@ -99,15 +99,13 @@ struct Flow {
     std::deque<std::pair<std::string, int64_t>> seen_order;
     bool welcome = false;
     size_t errors = 0, packet_errors = 0;
+    // 队列/分片缓冲的近似字节数，增量维护（见 buffered()）。
+    size_t buffered_bytes = 0;
     size_t buffered() const {
-        size_t bytes = 0;
-        for (auto &[id, c] : channels) {
-            if (c.partial)
-                bytes += c.partial->payload.size();
-            for (auto &[seq, q] : c.queue)
-                bytes += q.bunch.payload.size();
-        }
-        return bytes;
+        // 旧实现每个包都遍历 channels × queue（通道上限 2048，队列 64 => 13 万次
+        // std::map 节点遍历），而 consume() 里每包要调两次 => 每秒百万级指针追逐。
+        // 改成增量维护：只在这两个上限判断里用到「是否超过 8MB」，用近似值足够。
+        return buffered_bytes;
     }
 };
 std::string profile_for(const std::string &s) {
@@ -899,11 +897,22 @@ struct PlayerDecoder::Impl {
         try { logical_body(f,c,b,e); } catch (...) { finish(); throw; }
         finish();
     }
+    // partial 缓冲的字节数也要计入 buffered_bytes，否则「队列 + 分片」总量会低估。
+    void drop_partial(Flow &f, Channel &c) {
+        if (c.partial)
+            f.buffered_bytes -= std::min(f.buffered_bytes, c.partial->payload.size());
+        c.partial.reset();
+    }
+    void drop_queue(Flow &f, Channel &c) {
+        for (auto &[seq, q] : c.queue)
+            f.buffered_bytes -= std::min(f.buffered_bytes, q.bunch.payload.size());
+        c.queue.clear();
+    }
     void fragment(Flow &f, Channel &c, Bunch b, const Json &e, int64_t sequence) {
         if (!b.partial) {
             if (c.partial) {
                 diagnostic(f, e, "complete bunch interrupted partial chain", b.channel);
-                c.partial.reset();
+                drop_partial(f, c);
             }
             logical(f, c, std::move(b), e);
             return;
@@ -911,7 +920,9 @@ struct PlayerDecoder::Impl {
         if (b.initial) {
             if (c.partial)
                 diagnostic(f, e, "new initial fragment replaced partial chain", b.channel);
+            drop_partial(f, c);
             c.partial = b;
+            f.buffered_bytes += c.partial->payload.size();
             c.partial_sequence = sequence;
         } else {
             if (!c.partial) {
@@ -920,13 +931,15 @@ struct PlayerDecoder::Impl {
             }
             if (c.partial->reliable != b.reliable || (b.reliable && sequence != c.partial_sequence + 1) ||
                 (!b.reliable && sequence != c.partial_sequence && sequence != c.partial_sequence + 1)) {
-                c.partial.reset();
+                drop_partial(f, c);
                 diagnostic(f, e, "partial sequence/reliability gap", b.channel);
                 return;
             }
             auto &p = *c.partial;
             auto start = p.bits;
+            const size_t before = p.payload.size();
             ue::append(p.payload, p.bits, b.payload, b.bits);
+            f.buffered_bytes += p.payload.size() - before;
             p.fragments.push_back({start, b.exports, b.must});
             if (p.fragments.size() > 1024)
                 throw ue::Error("partial fragment count limit");
@@ -936,7 +949,7 @@ struct PlayerDecoder::Impl {
         }
         if (b.final) {
             auto whole = std::move(*c.partial);
-            c.partial.reset();
+            drop_partial(f, c);
             logical(f, c, std::move(whole), e);
         }
     }
@@ -1024,8 +1037,8 @@ struct PlayerDecoder::Impl {
                 // 开局/换图时包量大、处理慢，2 秒太紧，会把还在排队的新数据一起清掉。
                 // 放宽到 5 秒：正常对局每个通道每秒都有包，5 秒足够区分「真的断了」。
                 if (c.last_time && now - c.last_time > 5000 && (c.partial || !c.queue.empty())) {
-                    c.partial.reset();
-                    c.queue.clear();
+                    drop_partial(f, c);
+                    drop_queue(f, c);
                     c.delivered.reset();
                     diagnostic(f, e, "incomplete channel data expired", b.channel);
                 }
@@ -1057,6 +1070,7 @@ struct PlayerDecoder::Impl {
                     // 先恢复原状，再单独定位真正的延迟原因。
                     if (c.queue.size() >= 64 || f.buffered() + b.payload.size() > 8 * 1024 * 1024)
                         throw ue::Error("reliable reorder queue capacity@" + std::to_string(id));
+                    f.buffered_bytes += b.payload.size();
                     c.queue.try_emplace(seq, Queued{std::move(b), e, seq});
                     continue;
                 }
@@ -1071,6 +1085,7 @@ struct PlayerDecoder::Impl {
                     auto it = c.queue.find(*c.delivered + 1);
                     auto q = std::move(it->second);
                     c.queue.erase(it);
+                    f.buffered_bytes -= std::min(f.buffered_bytes, q.bunch.payload.size());
                     try {
                         fragment(f, c, std::move(q.bunch), q.event, q.sequence);
                     } catch (const std::exception &x) {
@@ -1108,13 +1123,13 @@ struct PlayerDecoder::Impl {
             if (bad >= 0) {
                 auto it = f.channels.find(uint32_t(bad));
                 if (it != f.channels.end()) {
-                    it->second.partial.reset();
-                    it->second.queue.clear();
+                    drop_partial(f, it->second);
+                    drop_queue(f, it->second);
                 }
             } else {
                 for (auto &[id, c] : f.channels) {
-                    c.partial.reset();
-                    c.queue.clear();
+                    drop_partial(f, c);
+                    drop_queue(f, c);
                 }
             }
         }

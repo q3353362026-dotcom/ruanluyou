@@ -336,10 +336,16 @@ int capture(const CaptureOptions &options, std::atomic<bool> *cancellation, Sink
         e["synthetic"] = o.synthetic;
         if (!e.contains("timestampMs"))
             e["timestampMs"] = now_ms();
-        Json persisted = e;
-        if (!o.save_udp_payload && persisted["type"] == "udp_plaintext")
+        // 旧实现 Json persisted = e; 每个包整棵 JSON 深拷贝一次（udp_plaintext 带
+        // payloadBase64，20+ 字段），绝密模式每秒几十包 => 每秒几十次红黑树重建。
+        // 现在只在需要剥离 payload 时拷贝，其余直接 move。
+        if (!o.save_udp_payload && e["type"] == "udp_plaintext") {
+            Json persisted = e;
             persisted["data"].erase("payloadBase64");
-        record(std::move(persisted));
+            record(std::move(persisted));
+        } else {
+            record(e);
+        }
         players.consume(e);
     });
     record({{"type", "session_started"},
