@@ -91,6 +91,9 @@ Json LootTracker::snapshot(uint32_t actor)const{
         auto id=name["text"].get<std::string>();
         if(!id.empty()&&id.size()<=16&&std::all_of(id.begin(),id.end(),[](char c){return c>='0'&&c<='9';}))out["itemId"]=id;
     }
+    // 诊断：把 InventoryIdName 的原始结构带出来（hardcoded / hardcoded_index / text / number），
+    // 用于定位「itemId 为空」到底是无物资变体还是解析错位。字段很小，不影响性能。
+    if(name.is_object())out["idNameRaw"]=name;
     if(r.fields.contains("StackCount"))out["count"]=r.fields["StackCount"];
     return out;
 }
