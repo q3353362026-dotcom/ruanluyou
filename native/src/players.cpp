@@ -1095,11 +1095,17 @@ struct PlayerDecoder::Impl {
             ++duplicates;
             return;
         }
+        // 旧实现每个包都跑一次 std::erase_if(flows, ...)：遍历最多 64 个 flow，
+        // 每项比较 2 个字符串。136 包/秒 × 64 × 2 = 每秒 1.7 万次字符串比较。
+        // 但只有 epoch 真的变化时才需要清理旧 epoch 的 flow，其余时候纯浪费。
+        const bool epoch_changed = epochs[pair] != epoch;
         epochs[pair] = epoch;
-        std::erase_if(flows, [&](auto &entry) {
-            return std::get<0>(entry.first) == session && std::get<1>(entry.first) == flow &&
-                   std::get<2>(entry.first) != epoch;
-        });
+        if (epoch_changed) {
+            std::erase_if(flows, [&](auto &entry) {
+                return std::get<0>(entry.first) == session && std::get<1>(entry.first) == flow &&
+                       std::get<2>(entry.first) != epoch;
+            });
+        }
         auto key = std::tuple{session, flow, epoch};
         if (!flows.contains(key) && flows.size() >= 64)
             throw ue::Error("player decoder flow limit");
