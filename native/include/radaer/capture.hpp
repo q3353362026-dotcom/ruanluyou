@@ -13,7 +13,7 @@ struct CaptureOptions {
     bool shared_windows = false, shared_redirect = false, manage_firewall = true;
     bool linux_redirect = false;
     std::string windivert_dll, shared_host_ip, tcp_server;
-    unsigned shared_if_index = 0, tcp_port = 0;
+    unsigned shared_if_index = 0, tcp_port = 0, udp_port = 0;
 };
 class CaptureFirewall {
     struct Impl;
