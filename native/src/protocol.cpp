@@ -145,7 +145,12 @@ void TgcpSession::translate(bool up, Bytes &f) {
 void TgcpSession::frame(bool up, Bytes f, Translation &out) {
     unsigned cmd = (unsigned(f[6]) << 8) | f[7];
     auto h = be32(f, 13);
-    need(f[8] == (up ? 0 : 1), "TGCP direction mismatch");
+    // f[8] 方向标记（0=上行 1=下行）只用于断言，不参与解密：translate() 用 up 参数选 key。
+    // 实测服务器会主动下发 f[8]=0 的帧；旧实现 throw 后 capture.cpp 把连接标记 dead，
+    // 游戏 TCP 65010 被掐断 => 雷达全瞎。改为只记诊断，继续按 socket 方向解密。
+    if (f[8] != (up ? 0 : 1) && sink_)
+        sink_({{"type", "tcp_direction_mismatch"},
+               {"data", {{"wireDirection", int(f[8])}, {"socketUp", up ? 1 : 0}, {"cmd", cmd}}}});
     auto hello = [&]() {
         need(h >= 88 && f[21] == 3 && f[22] == 0 && f[23] == 64, "unsupported DH hello");
         return View(f).subspan(24, 64);
