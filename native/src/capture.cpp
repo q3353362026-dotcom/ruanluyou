@@ -605,7 +605,14 @@ int capture(const CaptureOptions &options, std::atomic<bool> *cancellation, Sink
         if (reassembler.expire(steady_ms()))
             broker.gap(ts, "ipv4_fragment_timeout");
         if (udp.fd != bad_socket && FD_ISSET(udp.fd, &rd)) {
-            for (int batch = 0; batch < 128; batch++) {
+            // 时间预算：换图/开局时游戏会瞬间爆量（重载地图 + 全实体同步），
+            // 旧实现每轮死循环处理 128 个包，每个包都要 XTEA 解密 + UE 解析，
+            // 单线程把 CPU 吃满 => AX3600 整体无响应（WiFi/SSH/转发全卡）。
+            // 改成：每轮最多 8ms 或 32 个包，剩下的留给下一轮，保证主循环能喘气。
+            const auto budget_end = std::chrono::steady_clock::now() + std::chrono::milliseconds(8);
+            for (int batch = 0; batch < 32; batch++) {
+                if (std::chrono::steady_clock::now() >= budget_end)
+                    break;
                 std::array<uint8_t, 65536> buffer{};
                 alignas(cmsghdr) std::array<unsigned char, CMSG_SPACE(sizeof(timespec))> control{};
                 iovec io{buffer.data(), buffer.size()};
