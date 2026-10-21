@@ -82,6 +82,14 @@ Json LootTracker::snapshot(uint32_t actor)const{
             else if((mesh>=2&&mesh<=5)||r.fields.value("KillInfo.TakerIsRobotAI",false)||r.fields.value("KillInfo.TakerIsAILAB",false))type="ai_death";
             else if(r.fields.contains("bIsAI"))type=r.fields["bIsAI"]==true?"ai_death":"player_death";
             if(r.fields.contains("bIsEmpty"))out["empty"]=r.fields["bIsEmpty"];
+            // 死者归属：KillInfo.Taker 就是死者（Maker 是凶手，绝不能拿来归属）。
+            // 原实现只用 TakerIsPlayer 这类布尔做分类，把 Taker 本体丢掉了，
+            // 导致桥接无法把「玩家盒子」对到具体玩家名，只能靠 6m 距离瞎猜
+            // （实测最近盒子离玩家 79m，全失败）。这里把原始字段带出来。
+            if(r.fields.contains("KillInfo.Taker"))out["deceased"]=r.fields["KillInfo.Taker"];
+            if(r.fields.contains("KillInfo.Maker"))out["killer"]=r.fields["KillInfo.Maker"];
+            if(r.fields.contains("DeadBodyBoxInfo.DeadBodySkeletalMeshType"))
+                out["meshType"]=r.fields["DeadBodyBoxInfo.DeadBodySkeletalMeshType"];
         }
         out["kind"]="container";out["containerType"]=type;out["contentsKnown"]=false;
         return out;
