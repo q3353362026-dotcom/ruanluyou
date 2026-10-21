@@ -1016,7 +1016,7 @@ struct PlayerDecoder::Impl {
                     c.delivered = seq - 1;
                 if (seq > *c.delivered + 1) {
                     if (c.queue.size() >= 64 || f.buffered() + b.payload.size() > 8 * 1024 * 1024)
-                        throw ue::Error("reliable reorder queue capacity");
+                        throw ue::Error("reliable reorder queue capacity@" + std::to_string(id));
                     c.queue.try_emplace(seq, Queued{std::move(b), e, seq});
                     continue;
                 }
@@ -1049,9 +1049,33 @@ struct PlayerDecoder::Impl {
                 throw ue::Error("flow buffer capacity");
         } catch (const std::exception &x) {
             diagnostic(f, e, x.what());
-            for (auto &[id, c] : f.channels) {
-                c.partial.reset();
-                c.queue.clear();
+            // 只清出问题的通道，不能清全部。
+            // 旧实现无条件清空所有通道的 queue/partial：绝密模式包量大时
+            // 某个通道队列一满（64 个）就抛异常，导致全流所有玩家通道被连带
+            // 清空 => 大量 movement context missing / truncated bitstream
+            // => 玩家位置长时间不更新 => 雷达上「人还在原地」。
+            //
+            // 通道号从异常消息里解析（"reliable reorder queue capacity@<id>"），
+            // 拿不到才退化为全清。用消息传号是为了不改所有 throw 点的签名。
+            int bad = -1;
+            {
+                const std::string msg = x.what();
+                auto at = msg.rfind('@');
+                if (at != std::string::npos && at + 1 < msg.size()) {
+                    try { bad = std::stoi(msg.substr(at + 1)); } catch (...) { bad = -1; }
+                }
+            }
+            if (bad >= 0) {
+                auto it = f.channels.find(uint32_t(bad));
+                if (it != f.channels.end()) {
+                    it->second.partial.reset();
+                    it->second.queue.clear();
+                }
+            } else {
+                for (auto &[id, c] : f.channels) {
+                    c.partial.reset();
+                    c.queue.clear();
+                }
             }
         }
     }
