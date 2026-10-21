@@ -114,8 +114,11 @@ std::string profile_for(const std::string &s) {
         return "current";
     if (s.find("BP_DFMPlayerState") != std::string::npos)
         return "legacy";
-    if (s.find("BP_DFMCharacter") != std::string::npos || s.find("BP_SOLCharacter") != std::string::npos ||
-        s.find("BP_DFMAICharacter") != std::string::npos)
+    // AI 角色类有 270 条属性（Character 只有 200 条），必须走独立表，
+    // 否则 handle 越界 => "replication handle outside catalog" => 身份链断裂。
+    if (s.find("BP_DFMAICharacter") != std::string::npos || s.find("BP_DFMCharacter_AI") != std::string::npos)
+        return "character_ai";
+    if (s.find("BP_DFMCharacter") != std::string::npos || s.find("BP_SOLCharacter") != std::string::npos)
         return "character";
     return {};
 }
