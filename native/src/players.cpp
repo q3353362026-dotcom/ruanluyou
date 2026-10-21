@@ -52,6 +52,8 @@ struct Channel {
     std::map<int64_t, Queued> queue;
     std::optional<Bunch> partial;
     int64_t partial_sequence = 0, last_time = 0, last_unreliable = -1;
+    // 队列最老包的到达时刻。丢包时 delivered+1 永远等不到，靠它判定缺口并跳过。
+    int64_t queue_head_time = 0;
     uint64_t generation = 0;
     size_t errors = 0;
     size_t server_self_errors = 0;
@@ -263,6 +265,7 @@ struct PlayerDecoder::Impl {
     std::map<std::tuple<std::string, std::string, uint64_t>, Flow> flows;
     std::map<std::pair<std::string, std::string>, uint64_t> epochs, retired;
     uint64_t packets = 0, samples = 0, errors = 0, duplicates = 0, identities = 0, reset_generation = 0;
+    uint64_t gap_skips = 0;
     uint64_t warnings = 0, self_samples = 0, server_self_samples = 0, motion_updates = 0;
     bool synthetic = false;
     explicit Impl(Sink s) : sink(std::move(s)) {}
@@ -966,6 +969,7 @@ struct PlayerDecoder::Impl {
         for (auto &[seq, q] : c.queue)
             f.buffered_bytes -= std::min(f.buffered_bytes, q.bunch.payload.size());
         c.queue.clear();
+        c.queue_head_time = 0;
     }
     void fragment(Flow &f, Channel &c, Bunch b, const Json &e, int64_t sequence) {
         if (!b.partial) {
@@ -1203,6 +1207,45 @@ struct PlayerDecoder::Impl {
                     }
                     continue;
                 }
+                // 【延迟根因】可靠通道按 seq 顺序交付，delivered+1 缺失时后续包全部进 queue 等待。
+                // 开局/换图内核丢包（dropsTotal 上万）会让 delivered+1 永远不来：
+                //   - 队列堆到 64 个才抛异常，期间吐出的全是旧数据 => 雷达「慢慢移动、人早就不在」
+                //   - last_time 每个包都刷新，5 秒超时永远不触发
+                // 修：队列最老包等待超过 500ms 即判定缺口，跳到队列最小 seq 继续交付。
+                if (!c.queue.empty() && c.queue_head_time && now - c.queue_head_time > 500) {
+                    auto first = c.queue.begin();
+                    auto skip_to = first->first;
+                    auto q = std::move(first->second);
+                    c.queue.erase(first);
+                    f.buffered_bytes -= std::min(f.buffered_bytes, q.bunch.payload.size());
+                    ++gap_skips;
+                    diagnostic(f, q.event,
+                               "reliable gap skipped to " + std::to_string(skip_to) +
+                                   " (waited " + std::to_string(now - c.queue_head_time) + "ms)",
+                               id % 32768, true);
+                    // 先把这个最老的包交付掉（不能丢），再从它的 seq 往后连续吐出。
+                    try {
+                        fragment(f, c, std::move(q.bunch), q.event, q.sequence);
+                    } catch (const std::exception &x) {
+                        c.partial.reset();
+                        diagnostic(f, q.event, x.what(), id % 32768);
+                    }
+                    c.delivered = q.sequence;
+                    while (c.queue.contains(*c.delivered + 1)) {
+                        auto it = c.queue.find(*c.delivered + 1);
+                        auto qq = std::move(it->second);
+                        c.queue.erase(it);
+                        f.buffered_bytes -= std::min(f.buffered_bytes, qq.bunch.payload.size());
+                        try {
+                            fragment(f, c, std::move(qq.bunch), qq.event, qq.sequence);
+                        } catch (const std::exception &x) {
+                            c.partial.reset();
+                            diagnostic(f, qq.event, x.what(), id % 32768);
+                        }
+                        c.delivered = qq.sequence;
+                    }
+                    c.queue_head_time = c.queue.empty() ? 0 : now;
+                }
                 auto seq = c.delivered ? unwrap(b.sequence, *c.delivered, 1024) : int64_t(b.sequence);
                 if (c.delivered && seq <= *c.delivered) {
                     ++duplicates;
@@ -1217,6 +1260,8 @@ struct PlayerDecoder::Impl {
                     if (c.queue.size() >= 64 || f.buffered() + b.payload.size() > 8 * 1024 * 1024)
                         throw ue::Error("reliable reorder queue capacity@" + std::to_string(id));
                     f.buffered_bytes += b.payload.size();
+                    if (c.queue.empty())
+                        c.queue_head_time = now;
                     c.queue.try_emplace(seq, Queued{std::move(b), e, seq});
                     continue;
                 }
@@ -1240,6 +1285,8 @@ struct PlayerDecoder::Impl {
                     }
                     c.delivered = q.sequence;
                 }
+                if (c.queue.empty())
+                    c.queue_head_time = 0;
             }
             for (auto &b : p.bunches)
                 if (!b.reliable) {
@@ -1295,6 +1342,7 @@ struct PlayerDecoder::Impl {
                 {"errors", errors},
                 {"warnings", warnings},
                 {"duplicatePacketsOrBunches", duplicates},
+                {"reliableGapSkips", gap_skips},
                 {"containsSyntheticSamples", synthetic},
                 {"activeFlows", flows.size()},
                 {"status", samples || self_samples ? "samples_emitted" : "no_player_samples"}};
