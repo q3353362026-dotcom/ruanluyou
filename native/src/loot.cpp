@@ -90,6 +90,17 @@ Json LootTracker::snapshot(uint32_t actor)const{
             if(r.fields.contains("KillInfo.Maker"))out["killer"]=r.fields["KillInfo.Maker"];
             if(r.fields.contains("DeadBodyBoxInfo.DeadBodySkeletalMeshType"))
                 out["meshType"]=r.fields["DeadBodyBoxInfo.DeadBodySkeletalMeshType"];
+            // 诊断：把死亡盒全部字段名 + 值（限长）带出来，定位 deceased 到底叫什么。
+            // 字段名表通常 <40 项，每项值截断到 80 字节，开销可忽略。
+            if(r.fields.is_object()){
+                Json names=Json::array();
+                for(const auto &kv : r.fields.items()){
+                    std::string v=kv.value().dump();
+                    if(v.size()>80)v=v.substr(0,80)+"...";
+                    names.push_back(kv.key()+"="+v);
+                }
+                out["fieldDump"]=names;
+            }
         }
         out["kind"]="container";out["containerType"]=type;out["contentsKnown"]=false;
         return out;
