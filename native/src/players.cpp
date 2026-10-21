@@ -455,29 +455,13 @@ struct PlayerDecoder::Impl {
         data["playerStateGuid"] = ps_id;
         if (ps_id && f.actors.contains(ps_id) && !f.actors.at(ps_id).identity_key.empty())
             data["identityKey"] = f.actors.at(ps_id).identity_key;
-        data["identitySource"] = conflict   ? "conflicting_explicit_claims"
-                                 : actor_id ? "explicit_character_move_handle"
-                                            : "unassociated_slot";
-        data["identityFieldsExact"] = exact;
-        data["playerStateSource"] = !actor_id || !ps_id        ? "unknown"
-                                    : f.actors.at(actor_id).ps ? "Character.PlayerState"
-                                                               : "shared_Controller_Owner";
-        data["handshakeOk"] = f.welcome;
-        data["decoderPacketErrors"] = f.packet_errors;
-        data["decoderSemanticErrors"] = f.errors;
-        data["decoderChannelErrors"] = channel.errors;
-        data["packetErrorsSincePrevious"] = f.packet_errors - track.packet_errors;
-        data["semanticErrorsSincePrevious"] = channel.errors - track.errors;
-        data["movementFrameComplete"] = frame_complete;
-        data["movementBlockComplete"] = block_complete;
-        data["decodeCompleteness"] = block_complete ? "complete" : "known_prefix";
-        data["decodeStopReason"] = stop;
-        data["bankFingerprint"] = d.value("fingerprint", std::string());
-        data["coordinateSource"] = "UE_MovementReplicationActor_repmove4";
-        data["channelSource"] = exported ? "exported_archetype" : "structural_frame_h21";
-        data["sourcePacketOrdinal"] = d.value("packetOrdinal", uint64_t(0));
-        data["properties"] = std::move(fields);
-        data["attributes"] = attributes(data["properties"]);
+        // 【性能】旧实现每个 sample 写 40+ 个字段，其中 30 个是纯诊断字段
+        // （decoderPacketErrors / bankFingerprint / coordinateSource / properties /
+        // attributes / motion / decodeCompleteness ...），下游 radar_bridge.py 和
+        // netrader_radar.py 一个都不用。
+        // 实测 140 包/秒 × 每包 ~7 个 sample × 40 字段 ≈ 每秒 4 万次 std::map 插入
+        // => 采集线程 100% 单核 => 内核缓冲积压 20+ 秒 => 雷达位置严重滞后。
+        // 现在只保留 UI 真正消费的字段。诊断走 player_decode_error/warning 事件。
         data["vitals"] = vitals_for(f,actor_id);
         // equipment / lifecycle 只在内容变化时才输出。旧实现每个 sample 都深拷贝
         // 一份完整装备表 + lifecycle 树，绝密模式 244 sample/秒 => 单核 A53 吃满。
@@ -496,7 +480,6 @@ struct PlayerDecoder::Impl {
                 data["lifecycle"] = lc;
             }
         }
-        data["motion"] = block_complete ? track.motion : Json::object();
         track.errors = channel.errors;
         track.packet_errors = f.packet_errors;
         ++samples;

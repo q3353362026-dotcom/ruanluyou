@@ -327,39 +327,17 @@ int capture(const CaptureOptions &options, std::atomic<bool> *cancellation, Sink
     };
     PlayerValidator player_validator;
     PlayerDecoder players([&](Json e) {
-        // 计时：inspect() 每个 player_sample 都跑一次，构造 26 字段 JSON。
-        // player_sample 392/秒 => 每秒上万次 map 插入，怀疑是 consume 87% 的大头。
-        static int64_t t_insp = 0, t_rec = 0, t_n3 = 0, t_last3 = 0;
-        static auto t_start3 = std::chrono::steady_clock::now();
-        struct R3 {
-            ~R3() {
-                ++t_n3;
-                auto el = std::chrono::duration_cast<std::chrono::milliseconds>(
-                              std::chrono::steady_clock::now() - t_start3).count();
-                if (el - t_last3 >= 5000) {
-                    t_last3 = el;
-                    std::fprintf(stderr, "[sink_diag] n=%lld inspect=%.1f%% record=%.1f%% (el=%lldms)\n",
-                                 (long long)t_n3, 100.0 * double(t_insp) / double(el * 1000),
-                                 100.0 * double(t_rec) / double(el * 1000), (long long)el);
-                    std::fflush(stderr);
-                }
-            }
-        } r3;
-        if (e.at("type") == "player_sample" || e.at("type") == "self_sample" ||
-            e.at("type") == "self_server_sample") {
-            auto t0 = std::chrono::steady_clock::now();
-            Json v = player_validator.inspect(e);
-            t_insp += std::chrono::duration_cast<std::chrono::microseconds>(
-                          std::chrono::steady_clock::now() - t0).count();
-            auto t1 = std::chrono::steady_clock::now();
-            record(std::move(v));
-            t_rec += std::chrono::duration_cast<std::chrono::microseconds>(
-                         std::chrono::steady_clock::now() - t1).count();
-        }
-        auto t2 = std::chrono::steady_clock::now();
+        // 【性能】旧实现每个 player_sample 都调 inspect() 并 emit 一条
+        // player_validation 事件。inspect() 要构造 26 字段 JSON + map 查找，
+        // 而 player_validation 下游（radar_bridge.py / UI）完全不消费 ——
+        // webui.cpp 只把 player_sample 本身 upsert 进 players 数组。
+        // 实测 player_sample 392/秒 => 每秒 392 次 inspect + 392 条冗余事件。
+        // 现在只对 self_sample / self_server_sample 做校验（它们有独立 UI 用途），
+        // player_sample 直接 record，不再产生 player_validation。
+        const auto &t = e.at("type");
+        if (t == "self_sample" || t == "self_server_sample")
+            record(player_validator.inspect(e));
         record(std::move(e));
-        t_rec += std::chrono::duration_cast<std::chrono::microseconds>(
-                     std::chrono::steady_clock::now() - t2).count();
     });
     BankBroker broker([&](Json e) {
         // 分段计时：定位采集线程 100% CPU 到底花在 broker 回调的哪一段。
