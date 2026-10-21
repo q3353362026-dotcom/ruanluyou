@@ -332,6 +332,17 @@ int capture(const CaptureOptions &options, std::atomic<bool> *cancellation, Sink
         record(std::move(e));
     });
     BankBroker broker([&](Json e) {
+        // 分段计时：定位采集线程 100% CPU 到底花在 broker 回调的哪一段。
+        struct Seg {
+            int64_t *acc;
+            std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+            ~Seg() {
+                *acc += std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now() - t0).count();
+            }
+        };
+        static int64_t t_record = 0, t_consume = 0, t_count = 0, t_last = 0;
+        static auto t_start = std::chrono::steady_clock::now();
         e["session"] = journal.session();
         e["device"] = o.device;
         e["synthetic"] = o.synthetic;
@@ -340,14 +351,31 @@ int capture(const CaptureOptions &options, std::atomic<bool> *cancellation, Sink
         // 旧实现 Json persisted = e; 每个包整棵 JSON 深拷贝一次（udp_plaintext 带
         // payloadBase64，20+ 字段），绝密模式每秒几十包 => 每秒几十次红黑树重建。
         // 现在只在需要剥离 payload 时拷贝，其余直接 move。
-        if (!o.save_udp_payload && e["type"] == "udp_plaintext") {
-            Json persisted = e;
-            persisted["data"].erase("payloadBase64");
-            record(std::move(persisted));
-        } else {
-            record(e);
+        {
+            Seg s{&t_record};
+            if (!o.save_udp_payload && e["type"] == "udp_plaintext") {
+                Json persisted = e;
+                persisted["data"].erase("payloadBase64");
+                record(std::move(persisted));
+            } else {
+                record(e);
+            }
         }
-        players.consume(e);
+        {
+            Seg s{&t_consume};
+            players.consume(e);
+        }
+        ++t_count;
+        auto el = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now() - t_start).count();
+        if (el - t_last >= 5000) {
+            t_last = el;
+            std::fprintf(stderr,
+                         "[seg_diag] n=%lld record=%.1f%% consume=%.1f%% (el=%lldms)\n",
+                         (long long)t_count, 100.0 * double(t_record) / double(el * 1000),
+                         100.0 * double(t_consume) / double(el * 1000), (long long)el);
+            std::fflush(stderr);
+        }
     });
     record({{"type", "session_started"},
             {"data",
