@@ -148,8 +148,9 @@ void BattleTracker::consume(const Json &event) {
         auto map = d.at("map").get<std::string>();
         if (it == flows_.end() || !map.starts_with("/Game/"))
             return;
-        if (it->second.map.empty())
-            it->second.map = std::move(map);
+        // 原实现只在 map 为空时赋值 => 同一 flow key 换图后永远停在第一张图。
+        // 每次 welcome 都更新；相同值赋值无副作用。
+        it->second.map = std::move(map);
         recovery_required_ = false;
         update("welcome_confirmed", timestamp);
     } else {
