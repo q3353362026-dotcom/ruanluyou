@@ -156,7 +156,7 @@ void update_exports(Flow &f, const Json &entries) {
     for (auto &x : entries)
         if (x.at("path").is_string()) {
             auto id = x.at("guid").get<uint32_t>();
-            if (!f.paths.contains(id) && f.paths.size() >= 32768)
+            if (!f.paths.contains(id) && f.paths.size() >= 8192)
                 throw ue::Error("NetGUID cache capacity");
             f.paths[id] = x;
         }

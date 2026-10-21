@@ -26,7 +26,7 @@ void LootTracker::exports(const Json &entries){
     }
 }
 void LootTracker::open(uint32_t actor,const Json &position,int64_t time,uint64_t order,const std::string &profile){
-    if(!actor||(!records_.contains(actor)&&records_.size()>=32768))return;
+    if(!actor||(!records_.contains(actor)&&records_.size()>=4096))return;
     auto &r=records_[actor];if(std::pair{time,order}<std::pair{r.time,r.order})return;
     if(r.removed||r.profile!=profile)r=Record{};
     r.profile=profile;
@@ -121,6 +121,10 @@ void apply_loot_state(Json &rows,const Json &d){
     auto key=std::to_string(d.at("actorGuid").get<uint32_t>());
     if(rows.contains(key)&&std::pair{d.value("timestampMs",int64_t(0)),d.value("sourceOrder",uint64_t(0))}<std::pair{rows[key].value("timestampMs",int64_t(0)),rows[key].value("sourceOrder",uint64_t(0))})return;
     if(!d.value("present",false)){rows.erase(key);return;}
-    if(rows.contains(key)||rows.size()<32768)rows[key]=d;
+    // 容量上限从 32768 降到 4096：绝密模式物资多，32768 条完整 Json 对象
+    // 会让 /api/live 每次序列化几十 MB，单线程 CPU 吃满 => 整机卡死。
+    // 单局实际可见物资远小于 4096（实测全图 ordinary 容器 ~150、露天物资 ~30），
+    // 4096 留有 20 倍余量，足够覆盖任何地图。
+    if(rows.contains(key)||rows.size()<4096)rows[key]=d;
 }
 }
