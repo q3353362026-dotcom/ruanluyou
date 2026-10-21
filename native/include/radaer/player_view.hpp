@@ -25,10 +25,17 @@ inline bool upsert_player_row(Json &rows, Json row) {
         if (old.value("flow", std::string()) != row.value("flow", std::string()) ||
             old.value("epoch", uint64_t(0)) != row.value("epoch", uint64_t(0)))
             continue;
+        // 同一玩家可能同时出现在两条通道上：ch=3（自己上行 self_movement）和
+        // ch=19（其他玩家下行）。旧实现按 channel+slot 判断同一行，两者被当成
+        // 不同行同时保留 => UI 拿到同一 actorGuid 的两组坐标 => 在两点之间来回
+        // 跳 => 视觉上「飘」。actorGuid 才是玩家的唯一标识，优先用它去重。
+        const auto a = old.value("actorGuid", uint32_t(0)), b = row.value("actorGuid", uint32_t(0));
+        const bool same_actor = a && b && a == b;
         const bool same_slot = old.value("channel", 0U) == row.value("channel", 0U) &&
                                old.value("slot", 0U) == row.value("slot", 0U);
         const bool same_identity = same_player_identity(old, row);
-        if ((same_slot || same_identity) && incoming_time < old.value("timestampMs", int64_t(0))) {
+        if ((same_actor || same_slot || same_identity) &&
+            incoming_time < old.value("timestampMs", int64_t(0))) {
             rejected = true;
             break;
         }
@@ -40,10 +47,12 @@ inline bool upsert_player_row(Json &rows, Json row) {
         if (old.value("flow", std::string()) != row.value("flow", std::string()) ||
             old.value("epoch", uint64_t(0)) != row.value("epoch", uint64_t(0)))
             continue;
+        const auto a = old.value("actorGuid", uint32_t(0)), b = row.value("actorGuid", uint32_t(0));
+        const bool same_actor = a && b && a == b;
         const bool same_slot = old.value("channel", 0U) == row.value("channel", 0U) &&
                                old.value("slot", 0U) == row.value("slot", 0U);
         const bool same_identity = same_player_identity(old, row);
-        if (same_slot || same_identity)
+        if (same_actor || same_slot || same_identity)
             rows.erase(i - 1);
     }
     rows.push_back(std::move(row));
