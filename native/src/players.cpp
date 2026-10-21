@@ -1006,6 +1006,32 @@ struct PlayerDecoder::Impl {
         }
     }
     void consume(const Json &e) {
+        // 顶层计时：区分「非 udp_plaintext 事件」和「udp_plaintext 处理」各占多少。
+        struct Top {
+            int64_t *acc;
+            std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+            ~Top() {
+                *acc += std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now() - t0).count();
+            }
+        };
+        static int64_t t_other = 0, t_key = 0, t_erase = 0, t_last2 = 0, t_n2 = 0;
+        static auto t_start2 = std::chrono::steady_clock::now();
+        struct Rep2 {
+            ~Rep2() {
+                ++t_n2;
+                auto el = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              std::chrono::steady_clock::now() - t_start2).count();
+                if (el - t_last2 >= 5000) {
+                    t_last2 = el;
+                    std::fprintf(stderr, "[top_diag] n=%lld other=%.1f%% key=%.1f%% erase=%.1f%% (el=%lldms)\n",
+                                 (long long)t_n2, 100.0 * double(t_other) / double(el * 1000),
+                                 100.0 * double(t_key) / double(el * 1000),
+                                 100.0 * double(t_erase) / double(el * 1000), (long long)el);
+                    std::fflush(stderr);
+                }
+            }
+        } rep2;
         const auto type = e.value("type", std::string());
         if (type == "session_started" || type == "capture_gap") {
             flows.clear();
@@ -1024,12 +1050,19 @@ struct PlayerDecoder::Impl {
             });
             return;
         }
-        if (type != "udp_plaintext")
+        if (type != "udp_plaintext") {
+            // 非 udp_plaintext 事件（player_sample/validation/battle_state 等）：
+            // 每个都要构造 std::string type 再比较。实测这类事件量很大。
             return;
+        }
         auto &d = e.at("data");
-        std::string flow = d.at("local").get<std::string>() + ">" + d.at("remote").get<std::string>();
+        std::string flow;
         auto session = e.value("session", std::string());
         auto epoch = d.at("epoch").get<uint64_t>();
+        {
+            Top s{&t_key};
+            flow = d.at("local").get<std::string>() + ">" + d.at("remote").get<std::string>();
+        }
         // 分段计时：定位 consume() 里 44% 的 CPU 到底在 base64 / ue::packet / blocks。
         struct Seg {
             int64_t *acc;
