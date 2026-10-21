@@ -8,7 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -19,7 +19,15 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq zstd rsync build-essential file wget
 
+      - name: Cache OpenWrt SDK
+        id: sdk-cache
+        uses: actions/cache@v4
+        with:
+          path: sdk
+          key: openwrt-sdk-24.10.1-ipq807x-musl-v1
+
       - name: Download OpenWrt SDK (qualcommax/ipq807x, musl, aarch64)
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         run: |
           set -eux
           SDK_URL="https://downloads.openwrt.org/releases/24.10.1/targets/qualcommax/ipq807x/openwrt-sdk-24.10.1-qualcommax-ipq807x_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
@@ -27,22 +35,40 @@ jobs:
           ls -lh sdk.tar.zst
           mkdir -p sdk
           tar --zstd -xf sdk.tar.zst -C sdk --strip-components=1
+          rm -f sdk.tar.zst
           ls sdk | head -20
 
-      - name: Build package
+      - name: Verify SDK layout
+        run: |
+          set -eux
+          test -f sdk/include/cmake.mk
+          test -d sdk/package
+          ls sdk/package/libs/ | head -20
+
+      - name: Build OpenSSL into SDK staging (required by radaer)
+        run: |
+          set -eux
+          cd sdk
+          # radaer CMakeLists 里 find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+          # SDK 默认只带 base 包，OpenSSL 头/库必须现编进 staging_dir
+          grep -q '^CONFIG_PACKAGE_libopenssl=y' .config || echo 'CONFIG_PACKAGE_libopenssl=y' >> .config
+          make defconfig
+          make -j2 package/libs/openssl/compile V=s
+          echo '--- staging openssl ---'
+          find staging_dir/target-*/usr -maxdepth 3 -name 'openssl' -o -name 'libcrypto*' | head -20
+
+      - name: Build radaer-native
         run: |
           set -eux
           chmod +x openwrt/build-sdk.sh
           sh openwrt/build-sdk.sh "$PWD/sdk" 2
-        env:
-          CI: "true"
 
       - name: Collect ipk
         if: always()
         run: |
           set -eux
           mkdir -p out
-          find sdk/bin -name '*.ipk' -exec cp -v {} out/ \; || true
+          find sdk/bin -name 'radaer-native_*.ipk' -exec cp -v {} out/ \; || true
           ls -lh out || true
 
       - name: Upload artifact
@@ -50,17 +76,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: radaer-ipk-${{ github.sha }}
-          path: out/*.ipk
+          path: out/radaer-native_*.ipk
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Upload build log on failure
+      - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-logs-${{ github.sha }}
           path: |
             sdk/logs/
-            sdk/tmp/
+            sdk/build_dir/target-*/radaer-native-*/.ninja_log
+            sdk/build_dir/target-*/radaer-native-*/CMakeFiles/CMakeError.log
+            sdk/build_dir/target-*/radaer-native-*/CMakeFiles/CMakeOutput.log
           if-no-files-found: ignore
           retention-days: 7
