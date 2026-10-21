@@ -5,7 +5,10 @@
 #include "radaer/equipment.hpp"
 #include "radaer/loot.hpp"
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <tuple>
@@ -334,6 +337,27 @@ struct PlayerDecoder::Impl {
     }
     void position(Flow &f, Channel &channel, const Bunch &b, const Json &e, unsigned slot, const Json &item,
                   bool exported, bool frame_complete, bool block_complete, const std::string &stop) {
+        // 计时探针：量 position() 总耗时，每 5 秒打一次 stderr。
+        struct Timer {
+            std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+            ~Timer() {
+                static std::atomic<int64_t> total_us{0}, count{0}, last_report{0};
+                auto us = std::chrono::duration_cast<std::chrono::microseconds>(
+                              std::chrono::steady_clock::now() - t0).count();
+                total_us += us;
+                ++count;
+                static auto start = std::chrono::steady_clock::now();
+                auto el = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              std::chrono::steady_clock::now() - start).count();
+                if (el - last_report >= 5000) {
+                    last_report = el;
+                    std::fprintf(stderr, "[pos_diag] n=%lld avg=%.1fus total=%lldms\n",
+                                 (long long)count, double(total_us) / double(count ? count : 1),
+                                 (long long)(total_us / 1000));
+                    std::fflush(stderr);
+                }
+            }
+        } timer;
         auto pos = item.find("pos");
         const bool has_position = pos != item.end() && world(*pos);
         if ((pos != item.end() && !has_position) || (!has_position && !block_complete))
