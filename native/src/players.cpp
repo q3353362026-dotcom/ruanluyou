@@ -352,8 +352,8 @@ struct PlayerDecoder::Impl {
                 if (el - last_report >= 5000) {
                     last_report = el;
                     std::fprintf(stderr, "[pos_diag] n=%lld avg=%.1fus total=%lldms\n",
-                                 (long long)count, double(total_us) / double(count ? count : 1),
-                                 (long long)(total_us / 1000));
+                                 (long long)count.load(), double(total_us.load()) / double(count.load() ? count.load() : 1),
+                                 (long long)(total_us.load() / 1000));
                     std::fflush(stderr);
                 }
             }
