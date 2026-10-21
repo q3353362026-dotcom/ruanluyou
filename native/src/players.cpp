@@ -1030,6 +1030,33 @@ struct PlayerDecoder::Impl {
         std::string flow = d.at("local").get<std::string>() + ">" + d.at("remote").get<std::string>();
         auto session = e.value("session", std::string());
         auto epoch = d.at("epoch").get<uint64_t>();
+        // 分段计时：定位 consume() 里 44% 的 CPU 到底在 base64 / ue::packet / blocks。
+        struct Seg {
+            int64_t *acc;
+            std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+            ~Seg() {
+                *acc += std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now() - t0).count();
+            }
+        };
+        static int64_t t_b64 = 0, t_pkt = 0, t_bunch = 0, t_n = 0, t_last = 0;
+        static auto t_start = std::chrono::steady_clock::now();
+        struct Report {
+            ~Report() {
+                ++t_n;
+                auto el = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              std::chrono::steady_clock::now() - t_start).count();
+                if (el - t_last >= 5000) {
+                    t_last = el;
+                    std::fprintf(stderr,
+                                 "[consume_diag] n=%lld b64=%.1f%% packet=%.1f%% bunch=%.1f%% (el=%lldms)\n",
+                                 (long long)t_n, 100.0 * double(t_b64) / double(el * 1000),
+                                 100.0 * double(t_pkt) / double(el * 1000),
+                                 100.0 * double(t_bunch) / double(el * 1000), (long long)el);
+                    std::fflush(stderr);
+                }
+            }
+        } report;
         auto pair = std::pair{session, flow};
         if (epoch < epochs[pair] || (retired.contains(pair) && epoch <= retired[pair])) {
             ++duplicates;
@@ -1054,10 +1081,18 @@ struct PlayerDecoder::Impl {
             auto encoded = d.at("payloadBase64").get<std::string>();
             if (encoded.size() > 90000)
                 throw ue::Error("oversize plaintext");
-            auto bytes = unbase64(encoded);
+            Bytes bytes;
+            {
+                Seg s{&t_b64};
+                bytes = unbase64(encoded);
+            }
             if (bytes.size() != d.at("payloadLength").get<size_t>())
                 throw ue::Error("plaintext length mismatch");
-            auto p = ue::packet(bytes, direction == "up");
+            ue::Packet p;
+            {
+                Seg s{&t_pkt};
+                p = ue::packet(bytes, direction == "up");
+            }
             if (p.control)
                 return;
             auto now = d.at("timestampMs").get<int64_t>();
@@ -1092,6 +1127,7 @@ struct PlayerDecoder::Impl {
                 return;
             }
             for (auto &b : p.bunches) {
+                Seg s{&t_bunch};
                 // Keep independent upstream channels; only downstream updates produce remote samples.
                 uint32_t id = b.channel + (direction == "up" ? 32768 : 0);
                 if (!f.channels.contains(id) && f.channels.size() >= 2048)
