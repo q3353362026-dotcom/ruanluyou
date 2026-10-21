@@ -8,6 +8,7 @@
 #include <charconv>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <csignal>
 #include <cstring>
 #include <filesystem>
@@ -473,13 +474,12 @@ int capture(const CaptureOptions &options, std::atomic<bool> *cancellation, Sink
                           std::chrono::steady_clock::now() - sel_start).count();
             if (el - last_report >= 5000) {
                 last_report = el;
-                record({{"type", "loop_diag"},
-                        {"data",
-                         {{"selectCalls", sel_count},
-                          {"selectZero", sel_zero},
-                          {"selectEintr", sel_eintr},
-                          {"elapsedMs", el},
-                          {"callsPerSec", sel_count * 1000 / std::max<int64_t>(el, 1)}}}});
+                // 直接打 stderr：api/state 的 events 会过滤未知字段，探针读不到。
+                std::fprintf(stderr,
+                             "[loop_diag] sel=%lld zero=%lld eintr=%lld elapsed=%lldms rate=%lld/s\n",
+                             (long long)sel_count, (long long)sel_zero, (long long)sel_eintr,
+                             (long long)el, (long long)(sel_count * 1000 / std::max<int64_t>(el, 1)));
+                std::fflush(stderr);
             }
         }
         if (ready < 0) {
