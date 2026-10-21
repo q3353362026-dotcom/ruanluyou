@@ -5,6 +5,12 @@ on:
   push:
     branches: [main, master]
 
+env:
+  SDK_VERSION: "24.10.1"
+  SDK_TARGET: "qualcommax/ipq807x"
+  SDK_FILE: "openwrt-sdk-24.10.1-qualcommax-ipq807x_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+  OPENSSL_VERSION: "3.0.15"
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -17,45 +23,73 @@ jobs:
       - name: Install deps
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq zstd rsync build-essential file wget
+          sudo apt-get install -y -qq zstd rsync build-essential file wget perl
 
       - name: Cache OpenWrt SDK
         id: sdk-cache
         uses: actions/cache@v4
         with:
           path: sdk
-          key: openwrt-sdk-24.10.1-ipq807x-musl-v1
+          key: openwrt-sdk-${{ env.SDK_VERSION }}-ipq807x-musl-v2
 
-      - name: Download OpenWrt SDK (qualcommax/ipq807x, musl, aarch64)
+      - name: Download OpenWrt SDK
         if: steps.sdk-cache.outputs.cache-hit != 'true'
         run: |
           set -eux
-          SDK_URL="https://downloads.openwrt.org/releases/24.10.1/targets/qualcommax/ipq807x/openwrt-sdk-24.10.1-qualcommax-ipq807x_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
-          wget -q "$SDK_URL" -O sdk.tar.zst
+          URL="https://downloads.openwrt.org/releases/${SDK_VERSION}/targets/${SDK_TARGET}/${SDK_FILE}"
+          wget -q "$URL" -O sdk.tar.zst
           ls -lh sdk.tar.zst
+          rm -rf sdk
           mkdir -p sdk
           tar --zstd -xf sdk.tar.zst -C sdk --strip-components=1
           rm -f sdk.tar.zst
-          ls sdk | head -20
 
-      - name: Verify SDK layout
+      - name: Diagnose SDK layout
         run: |
           set -eux
-          test -f sdk/include/cmake.mk
-          test -d sdk/package
-          ls sdk/package/libs/ | head -20
+          echo '=== sdk top ==='
+          ls -1 sdk
+          echo '=== toolchain ==='
+          ls -d sdk/staging_dir/toolchain-* || true
+          echo '=== target staging ==='
+          ls -d sdk/staging_dir/target-* || true
+          echo '=== package tree (maxdepth 2) ==='
+          find sdk/package -maxdepth 2 -type d 2>/dev/null | head -40 || echo '(no package dir)'
+          echo '=== openssl candidate paths ==='
+          for p in sdk/package/libs/openssl sdk/package/feeds/packages/openssl sdk/feeds/packages/libs/openssl; do
+            if [ -d "$p" ]; then echo "FOUND: $p"; else echo "missing: $p"; fi
+          done
 
-      - name: Build OpenSSL into SDK staging (required by radaer)
+      - name: Build OpenSSL into SDK staging
         run: |
           set -eux
-          cd sdk
-          # radaer CMakeLists 里 find_package(OpenSSL REQUIRED COMPONENTS Crypto)
-          # SDK 默认只带 base 包，OpenSSL 头/库必须现编进 staging_dir
-          grep -q '^CONFIG_PACKAGE_libopenssl=y' .config || echo 'CONFIG_PACKAGE_libopenssl=y' >> .config
-          make defconfig
-          make -j2 package/libs/openssl/compile V=s
-          echo '--- staging openssl ---'
-          find staging_dir/target-*/usr -maxdepth 3 -name 'openssl' -o -name 'libcrypto*' | head -20
+          TC=$(ls -d sdk/staging_dir/toolchain-*)
+          STAGING=$(ls -d sdk/staging_dir/target-*)
+          echo "TC=$TC"
+          echo "STAGING=$STAGING"
+
+          export CC="$TC/bin/aarch64-openwrt-linux-musl-gcc"
+          export CXX="$TC/bin/aarch64-openwrt-linux-musl-g++"
+          export AR="$TC/bin/aarch64-openwrt-linux-musl-gcc-ar"
+          export RANLIB="$TC/bin/aarch64-openwrt-linux-musl-gcc-ranlib"
+          export CFLAGS="-Os -fPIC -ffunction-sections -fdata-sections"
+          export LDFLAGS="-Wl,--gc-sections"
+
+          wget -q "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz"
+          tar xf "openssl-${OPENSSL_VERSION}.tar.gz"
+          cd "openssl-${OPENSSL_VERSION}"
+
+          ./Configure linux-aarch64 \
+            --prefix="$PWD/../$STAGING/usr" \
+            --openssldir=/etc/ssl \
+            no-tests no-shared no-async no-engine no-dso
+
+          make -j2 build_libs
+          make install_sw
+
+          echo '=== installed ==='
+          ls "$PWD/../$STAGING/usr/include/openssl" | head -10
+          ls -lh "$PWD/../$STAGING/usr/lib/"libcrypto* "$PWD/../$STAGING/usr/lib/"libssl* || true
 
       - name: Build radaer-native
         run: |
@@ -68,7 +102,8 @@ jobs:
         run: |
           set -eux
           mkdir -p out
-          find sdk/bin -name 'radaer-native_*.ipk' -exec cp -v {} out/ \; || true
+          find sdk -name 'radaer-native_*.ipk' -exec cp -v {} out/ \; || true
+          echo '=== out ==='
           ls -lh out || true
 
       - name: Upload artifact
@@ -87,7 +122,7 @@ jobs:
           name: build-logs-${{ github.sha }}
           path: |
             sdk/logs/
-            sdk/build_dir/target-*/radaer-native-*/.ninja_log
+            openssl-*/config.log
             sdk/build_dir/target-*/radaer-native-*/CMakeFiles/CMakeError.log
             sdk/build_dir/target-*/radaer-native-*/CMakeFiles/CMakeOutput.log
           if-no-files-found: ignore
