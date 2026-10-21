@@ -12,6 +12,7 @@
 #include <condition_variable>
 #include <thread>
 #include <chrono>
+#include <cstdio>
 namespace radaer {
 BankBroker::~BankBroker() {
     for (auto &c : candidates_)
@@ -137,6 +138,31 @@ void BankBroker::attempt(const std::string &key, Flow &f) {
     f.history.clear();
 }
 void BankBroker::packet(Packet p) {
+    // 分段计时：确认 XTEA 解密（udp_crypt）占多少 CPU。
+    struct Seg {
+        int64_t *acc;
+        std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+        ~Seg() {
+            *acc += std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::steady_clock::now() - t0).count();
+        }
+    };
+    static int64_t t_crypt = 0, t_valid = 0, t_n = 0, t_last = 0;
+    static auto t_start = std::chrono::steady_clock::now();
+    struct Report {
+        ~Report() {
+            ++t_n;
+            auto el = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::steady_clock::now() - t_start).count();
+            if (el - t_last >= 5000) {
+                t_last = el;
+                std::fprintf(stderr, "[broker_diag] n=%lld crypt=%.1f%% valid=%.1f%% (el=%lldms)\n",
+                             (long long)t_n, 100.0 * double(t_crypt) / double(el * 1000),
+                             100.0 * double(t_valid) / double(el * 1000), (long long)el);
+                std::fflush(stderr);
+            }
+        }
+    } report;
     if (p.payload.size() > 65507 || p.timestamp <= 0)
         throw std::runtime_error("invalid UDP input");
     std::string k = p.local + ">" + p.remote;
@@ -168,9 +194,18 @@ void BankBroker::packet(Packet p) {
         f.history.clear();
     }
     if (f.bound) {
-        Bytes plain =
-            p.up ? Bytes(p.payload.begin() + 8, p.payload.end()) : udp_crypt(p.payload, f.bound->bank);
-        if (valid_plaintext(plain)) {
+        Bytes plain;
+        {
+            Seg s{&t_crypt};
+            plain = p.up ? Bytes(p.payload.begin() + 8, p.payload.end())
+                         : udp_crypt(p.payload, f.bound->bank);
+        }
+        bool ok;
+        {
+            Seg s{&t_valid};
+            ok = valid_plaintext(plain);
+        }
+        if (ok) {
             if (!p.up && valid_envelope(plain)) {
                 f.failures = 0;
                 f.history.clear();
