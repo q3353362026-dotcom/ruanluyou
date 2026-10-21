@@ -1018,20 +1018,11 @@ struct PlayerDecoder::Impl {
                 if (!c.delivered)
                     c.delivered = seq - 1;
                 if (seq > *c.delivered + 1) {
-                    // 开局/换图时游戏会一次性批量同步所有实体（几十个玩家的完整
-                    // 初始状态），可靠包瞬间涌进来，64 个槽根本不够 -> 队列满 ->
-                    // 抛异常 -> 该通道整段丢弃 -> 雷达开局十几秒没数据。
-                    // 改成：
-                    //   1) 容量提到 512（够覆盖一次全量同步）
-                    //   2) 满了不抛异常，而是丢掉最旧的、保留最新的（新的更有价值）
-                    constexpr size_t kQueueCap = 512;
-                    if (c.queue.size() >= kQueueCap) {
-                        // 丢掉队列里最小的 seq（最旧的），腾出位置
-                        c.queue.erase(c.queue.begin());
-                        ++duplicates;  // 计入丢弃统计
-                    }
-                    if (f.buffered() + b.payload.size() > 8 * 1024 * 1024)
-                        throw ue::Error("flow buffer capacity@" + std::to_string(id));
+                    // 回滚到原始行为：队列 64，满了抛异常（由外层 catch 处理）。
+                    // 之前改成 512 导致延迟爆炸（队列越大等得越久），16 也未必对。
+                    // 先恢复原状，再单独定位真正的延迟原因。
+                    if (c.queue.size() >= 64 || f.buffered() + b.payload.size() > 8 * 1024 * 1024)
+                        throw ue::Error("reliable reorder queue capacity@" + std::to_string(id));
                     c.queue.try_emplace(seq, Queued{std::move(b), e, seq});
                     continue;
                 }
