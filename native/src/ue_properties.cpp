@@ -210,6 +210,7 @@ struct Cmd {
     bool single = false;
     bool has_departure = false;
     bool has_field_name = false;
+    bool is_move_handle = false;   // name == "MoveHandle" 预判，避免每 block 字符串比较
     const Json *meta = nullptr;
     std::string name;          // 只在需要写 fields 时用
     std::string departure_name;
@@ -232,6 +233,7 @@ const std::vector<Cmd> &flat_commands(const std::string &schema_key, const Json 
         cmd.meta = &c.at("meta");
         if (c.contains("name") && c["name"].is_string())
             cmd.name = c["name"].get<std::string>();
+        cmd.is_move_handle = (cmd.name == "MoveHandle");
         if (cmd.meta->contains("departure_name")) {
             cmd.has_departure = true;
             cmd.departure_name = (*cmd.meta)["departure_name"].get<std::string>();
@@ -322,6 +324,11 @@ Json properties(Bits &r, const std::string &profile) {
         if (profile == "character") {
             if (r.bit())
                 throw Opaque("Character prefix with checksums");
+            // 【性能】原实现每个 handle 都做 commands.at(h-1) 数组访问 +
+            // c.at("type") map 查找 + Json::object() 空对象构造 + c["name"] 字符串比较。
+            // 开局角色块是主力，6 分钟延迟主要来自这里。改走扁平表，零 Json 查找。
+            const auto &flat = flat_commands(profile, commands);
+            static const Json empty_meta = Json::object();
             unsigned last = 0;
             while (true) {
                 auto h = r.packed();
@@ -333,18 +340,20 @@ Json properties(Bits &r, const std::string &profile) {
                     result["status"] = "prefix_only";
                     break;
                 }
-                auto &c = commands.at(h - 1);
+                if (h > flat.size())
+                    throw Error("Character handle outside catalog");
+                const auto &c = flat[h - 1];
                 Json v;
                 if (h == 60) {
-                    if (c.at("name") != "MoveHandle")
+                    if (!c.is_move_handle)
                         throw Error("Character MoveHandle schema mismatch");
                     v = std::bit_cast<int32_t>(r.packed());
                 } else if (h == 6 || h == 15)
                     v = r.integer(4);
                 else
-                    v = value(r, c.at("type"), Json::object(), true);
+                    v = value(r, c.type, c.meta ? *c.meta : empty_meta, true);
                 if (h == 14 || h == 18 || h == 60)
-                    result["fields"][c["name"].get<std::string>()] = v;
+                    result["fields"][c.name] = v;
                 last = h;
             }
         } else {
