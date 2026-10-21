@@ -86,8 +86,9 @@ jobs:
           ./Configure linux-aarch64 \
             --prefix="$STAGING/usr" \
             --openssldir=/etc/ssl \
-            no-tests no-shared no-async no-engine no-dso no-apps no-docs no-legacy
+            no-tests no-shared no-async no-engine no-dso no-legacy
 
+          # 只编库，不编 apps（3.0.x 没有 no-apps 选项）
           make -j2 build_libs
           make install_sw
 
