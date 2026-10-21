@@ -276,11 +276,11 @@ struct Captures {
         auto pre = windows_capture_preflight(o);
         if (!pre["elevated"].get<bool>())
             throw std::runtime_error("启动采集需要以管理员身份运行 WebUI");
-        if (o.save_logs) {
-            std::filesystem::create_directories(options.output_directory);
-            o.output = (std::filesystem::path(options.output_directory) /
-                        ("web-" + std::to_string(now_ms()) + "-" + nonce().substr(0, 8) + ".jsonl")).string();
-        }
+        // output 必须始终非空：Journal 构造函数会 open(path)，
+        // 空路径直接抛异常把采集 worker 打死（saveLogs=false 时曾必崩）。
+        std::filesystem::create_directories(options.output_directory);
+        o.output = (std::filesystem::path(options.output_directory) /
+                    ("web-" + std::to_string(now_ms()) + "-" + nonce().substr(0, 8) + ".jsonl")).string();
         stop_requested = false;
         {
             std::lock_guard lock(mutex);

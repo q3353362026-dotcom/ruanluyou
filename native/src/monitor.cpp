@@ -216,6 +216,7 @@ struct Journal::Writer {
     size_t in_flight_bytes = 0;
     size_t written_bytes = 0;
     bool closing = false;
+    bool limit_hit = false;
     std::exception_ptr failure;
     std::thread worker;
     Writer(std::ofstream &stream, std::string file_path, size_t limit)
@@ -226,11 +227,19 @@ struct Journal::Writer {
             std::rethrow_exception(failure);
         if (closing)
             throw std::runtime_error("capture journal already closed");
+        // 到上限后静默丢弃，不再抛异常。
+        // 原实现 throw 会一路冒到采集 worker 线程把它打死 => phase 掉回 idle，
+        // 对局中途丢包废局。这里改成丢弃 + 只记一次标志，采集继续跑。
         const auto used = written_bytes + in_flight_bytes + queued_bytes;
-        if (line.size() > max_bytes || used > max_bytes - line.size())
-            throw std::runtime_error(journal_limit_context(path, used, max_bytes, line.size()));
-        if (line.size() > 8 * 1024 * 1024 || queued_bytes > 8 * 1024 * 1024 - line.size())
-            throw std::runtime_error("capture journal queue full: storage cannot keep up");
+        if (line.size() > max_bytes || used > max_bytes - line.size()) {
+            limit_hit = true;
+            return;
+        }
+        if (line.size() > 8 * 1024 * 1024 || queued_bytes > 8 * 1024 * 1024 - line.size()) {
+            // 队列满同样只丢弃，不杀 worker
+            limit_hit = true;
+            return;
+        }
         queued_bytes += line.size();
         queue.push_back(std::move(line));
         ready.notify_one();
