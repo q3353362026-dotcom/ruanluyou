@@ -116,7 +116,18 @@ void BattleTracker::consume(const Json &event) {
                     : d.at("flow").get<std::string>();
     auto pair = std::pair{session, flow};
     if (type == "udp_binding_reset") {
-        retired_[pair] = std::max(epochs_[pair], d.value("epoch", uint64_t(0)));
+        // 旧实现 retired_[pair] = max(epochs_[pair], 事件里的 epoch)。
+        // 事件里的 epoch 就是当前 epoch => retired_[pair] == 当前 epoch
+        // => 下面 epoch <= retired_[pair] 恒为真 => 该 flow 所有 udp_plaintext
+        // 被永久拒收 => f.received 不再更新 => 15 秒后判 idle =>
+        // players / loot 全被清空 => 雷达上人和盒子全没了。
+        //
+        // 正确语义：retired_ 只用来挡住「已经过期的那一代 epoch」。
+        // 记录为「当前 epoch - 1」，这样当前 epoch 的包照常接收，
+        // 只有更早的迟到包会被丢弃。
+        const auto cur = epochs_[pair];
+        const auto ev = d.value("epoch", uint64_t(0));
+        retired_[pair] = (cur > 0 ? cur : ev) > 0 ? (cur > 0 ? cur : ev) - 1 : 0;
         std::erase_if(flows_, [&](const auto &entry) {
             return std::get<0>(entry.first) == session && std::get<1>(entry.first) == flow;
         });
