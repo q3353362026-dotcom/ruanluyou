@@ -90,6 +90,22 @@ Json LootTracker::snapshot(uint32_t actor)const{
             if(r.fields.contains("KillInfo.Maker"))out["killer"]=r.fields["KillInfo.Maker"];
             if(r.fields.contains("DeadBodyBoxInfo.DeadBodySkeletalMeshType"))
                 out["meshType"]=r.fields["DeadBodyBoxInfo.DeadBodySkeletalMeshType"];
+            // 凶手/死者可读名：KillInfo.KillerName / BeKilledName 是 FText 结构，
+            // 形如 {"flags":2,"history":255,"source":"我就只玩AZ3"}，取 source 即可。
+            // 这样地图上的盒子能直接标「谁杀的」，比只显示「AI盒子」有用得多。
+            auto text_of=[&](const char *key)->std::string{
+                auto it=r.fields.find(key);
+                if(it==r.fields.end()||!it->is_object())return {};
+                auto src=it->value("source",Json());
+                if(src.is_string())return src.get<std::string>();
+                return {};
+            };
+            if(auto n=text_of("KillInfo.KillerName");!n.empty())out["killerName"]=n;
+            if(auto n=text_of("KillInfo.BeKilledName");!n.empty())out["victimName"]=n;
+            if(r.fields.contains("KillInfo.KillerUin"))out["killerUin"]=r.fields["KillInfo.KillerUin"];
+            if(r.fields.contains("KillInfo.BeKilledUin"))out["victimUin"]=r.fields["KillInfo.BeKilledUin"];
+            if(r.fields.contains("KillInfo.KillDistance"))out["killDistance"]=r.fields["KillInfo.KillDistance"];
+            if(r.fields.contains("KillInfo.IsHitHead"))out["headshot"]=r.fields["KillInfo.IsHitHead"];
             // 诊断：把死亡盒全部字段名 + 值（限长）带出来，定位 deceased 到底叫什么。
             // 字段名表通常 <40 项，每项值截断到 80 字节，开销可忽略。
             if(r.fields.is_object()){
