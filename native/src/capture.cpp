@@ -453,12 +453,35 @@ int capture(const CaptureOptions &options, std::atomic<bool> *cancellation, Sink
         }
         timeval timeout{0, shared ? 20000 : 200000};
         int ready = 0;
+        // 诊断：统计 select 返回次数与耗时，用来区分「真在处理包」还是「空转」。
+        // 若 select 每秒返回上万次而 udp_raw 只涨几十个 => 空转，不是解析慢。
+        {
+            static int64_t sel_count = 0, sel_zero = 0, sel_eintr = 0, last_report = 0;
+            static auto sel_start = std::chrono::steady_clock::now();
+            ++sel_count;
 #ifdef _WIN32
         if (rd.fd_count == 0 && wr.fd_count == 0)
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         else
 #endif
             ready = select(int(maxfd + 1), &rd, &wr, nullptr, &timeout);
+            if (ready == 0)
+                ++sel_zero;
+            if (ready < 0 && errno == EINTR)
+                ++sel_eintr;
+            auto el = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::steady_clock::now() - sel_start).count();
+            if (el - last_report >= 5000) {
+                last_report = el;
+                record({{"type", "loop_diag"},
+                        {"data",
+                         {{"selectCalls", sel_count},
+                          {"selectZero", sel_zero},
+                          {"selectEintr", sel_eintr},
+                          {"elapsedMs", el},
+                          {"callsPerSec", sel_count * 1000 / std::max<int64_t>(el, 1)}}}});
+            }
+        }
         if (ready < 0) {
             if (cancelled())
                 break;

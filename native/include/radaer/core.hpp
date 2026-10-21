@@ -17,17 +17,12 @@ using Bytes = std::vector<uint8_t>;
 using View = std::span<const uint8_t>;
 using Key = std::array<uint8_t, 16>;
 using Bank = std::array<uint8_t, 128>;
-// nlohmann::json 默认用 std::map 存对象：每次 obj["k"]=v 是 O(log n) 红黑树插入
-// + std::string 比较 + 节点分配。player_sample 每帧写 40+ 字段，绝密模式 18 人
-// × 每秒几十移动包 => 每秒上万次树插入 => AX3600 单核 A53 吃满 => 雷达滞后。
-// 改用 unordered_map 的 basic_json（O(1) 插入）。JSON 键顺序不再固定，
-// 下游全部按 key 取值，不依赖顺序。
-// 模板参数顺序见 nlohmann/json.hpp：ObjectType, ArrayType, StringType, BooleanType,
-// NumberIntegerType, NumberUnsignedType, NumberFloatType, AllocatorType,
-// JSONSerializer, BinaryType, CustomBaseClass
-using Json = nlohmann::basic_json<std::unordered_map, std::vector, std::string, bool,
-                                 std::int64_t, std::uint64_t, double, std::allocator,
-                                 nlohmann::adl_serializer, std::vector<std::uint8_t>, void>;
+// 说明：曾尝试把 Json 换成 basic_json<unordered_map,...> 提升插入速度，
+// 但 nlohmann json.hpp:3591 的 actual_object_comparator 用 std::conditional
+// 无条件实例化 object_t::key_compare，unordered_map 没有该类型 => 编译失败。
+// nlohmann 官方不支持 unordered_map 作为 ObjectType，此路不通。
+// 性能问题改在调用侧解决：减少每包 JSON 字段数、消除深拷贝、避免 O(n) 扫描。
+using Json = nlohmann::json;
 using Sink = std::function<void(Json)>;
 Bytes unhex(const std::string &s);
 std::string hex(View b);
