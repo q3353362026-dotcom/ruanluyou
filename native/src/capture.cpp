@@ -32,6 +32,8 @@ constexpr socket_t bad_socket = INVALID_SOCKET;
 #include <netinet/tcp.h>
 #include <sys/select.h>
 #include <sys/socket.h>
+#include <sys/resource.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 #ifdef __linux__
 #include <linux/if_ether.h>
@@ -281,9 +283,13 @@ int capture(const CaptureOptions &options, std::atomic<bool> *cancellation, Sink
         int timestamps = 1;
         if (setsockopt(udp.fd, SOL_SOCKET, SO_TIMESTAMPNS, &timestamps, sizeof(timestamps)) < 0)
             throw std::runtime_error("kernel packet timestamps unavailable");
-        // 64 MB: 换图/加载高峰时 UDP burst 可达平时 5-10 倍，4MB 环形缓冲会溢出
-        // 触发 tp_drops -> capture_gap -> 整局作废。路由器有 400MB 内存，64MB 可承受。
-        int size = 64 * 1024 * 1024;
+        // 环形缓冲大小：旧值 64MB 是致命的。
+        // SO_RCVBUFFORCE 会强制内核分配 64MB 大块内存（kmalloc），AX3600 只有 400MB
+        // 总内存，这块内存锁死不参与回收；绝密模式 UDP 爆量时缓冲被反复填满，
+        // 内存带宽和 cache 全被冲掉，还会触发内核 compaction 停顿
+        // => 整机卡死（WiFi/SSH/转发全挂）。
+        // 8MB 足够吸收换图瞬间的 burst（实测峰值 ~2MB/s * 2s），且不会压垮内存。
+        int size = 8 * 1024 * 1024;
         // CAP_NET_ADMIN can raise this socket's limit without changing global sysctls.
         if (setsockopt(udp.fd, SOL_SOCKET, SO_RCVBUFFORCE, &size, sizeof(size)) < 0 &&
             setsockopt(udp.fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size)) < 0)
@@ -293,6 +299,18 @@ int capture(const CaptureOptions &options, std::atomic<bool> *cancellation, Sink
             throw std::runtime_error("cannot read packet receive buffer");
         if (bind(udp.fd, reinterpret_cast<sockaddr *>(&a), sizeof(a)) < 0)
             throw std::runtime_error("packet interface bind failed");
+    }
+#endif
+    #ifdef __linux__
+    // CPU/IO 优先级降到最低：radaer 是旁路观测进程，绝不能和路由转发抢资源。
+    // AX3600 是 4 核 A53 @1.0GHz，绝密模式 UDP 爆量时 radaer 单核吃满会拖垮整机
+    // （WiFi/SSH/转发全卡）。nice 19 + idle IO 让内核调度永远优先保证转发。
+    // 代价：雷达数据可能滞后几百毫秒，但网络绝不断。
+    setpriority(PRIO_PROCESS, 0, 19);
+    {
+        // IOPRIO_CLASS_IDLE = 3，最低 IO 优先级
+        int ioprio = (3 << 13);
+        syscall(SYS_ioprio_set, 1 /* IOPRIO_WHO_PROCESS */, 0, ioprio);
     }
 #endif
     Journal journal(o.output, o.device, o.synthetic, std::move(observer), o.save_logs, o.max_log_bytes);
