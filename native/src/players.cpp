@@ -77,6 +77,12 @@ struct Track {
     // 用版本号判断：只有 snapshot 变化时才带，其余 sample 置空由下游沿用。
     uint64_t equipment_version = ~0ull;
     Json lifecycle_version = Json(nullptr);
+    // 【性能】同一个玩家 50ms 内只发一次 player_sample。
+    // 实测：221 包/秒 => 663 sample/秒（每包含多个玩家位置），
+    // 每个 sample 构造 14 字段 JSON + emit + record + webui upsert，
+    // 663 × 1.5ms ≈ 100% 单核 => 内核缓冲积压 18 秒 => 雷达滞后。
+    // UI 只需要「最新位置」，同一玩家 50ms 内的中间帧没有价值。
+    int64_t last_emit_ms = 0;
 };
 struct Flow {
     LootTracker loot;
@@ -416,6 +422,17 @@ struct PlayerDecoder::Impl {
         }
         if (block_complete)
             extend_motion(track.motion, item, d.at("timestampMs").get<int64_t>());
+        // 【节流·提前】同一玩家 50ms 内只构造一次 sample。
+        // 放在这里而不是 emit 前，是为了省掉整个 data 的 14 字段 JSON 构造
+        // + vitals/equipment 查询。实测 663 sample/秒 × 1.5ms = 100% 单核。
+        // 注意：只对「有坐标」的常规 sample 节流；motion-only 事件不受影响。
+        {
+            const int64_t now_ms = d.at("timestampMs").get<int64_t>();
+            if (has_position && track.last_emit_ms && now_ms - track.last_emit_ms < 50)
+                return;
+            if (has_position)
+                track.last_emit_ms = now_ms;
+        }
         const auto track_id = "reset:" + std::to_string(reset_generation) +
             "/channel:" + std::to_string(b.channel) + "/generation:" + std::to_string(channel.generation) +
             "/slot:" + std::to_string(slot) + "/identity:" + std::to_string(track.revision);
@@ -467,6 +484,9 @@ struct PlayerDecoder::Impl {
         // 需要带上 status/flags 供 PlayerValidator 之外的消费者判断。
         data["status"] = "plausible";
         data["flags"] = Json::array();
+        // rates.cpp 用 sourcePacketOrdinal 去重统计 coordinatePacketsPerSecond，
+        // 删掉会让这个指标恒为 0（UI 的「坐标包/秒」显示不出来）。
+        data["sourcePacketOrdinal"] = d.value("packetOrdinal", uint64_t(0));
         // equipment / lifecycle 只在内容变化时才输出。旧实现每个 sample 都深拷贝
         // 一份完整装备表 + lifecycle 树，绝密模式 244 sample/秒 => 单核 A53 吃满。
         // 下游（radar_bridge.py）按 actorGuid 合并，缺字段时沿用上一次的值。
