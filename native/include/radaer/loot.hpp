@@ -11,6 +11,9 @@ public:
     void exports(const Json &entries);
     void open(uint32_t actor,const Json &position,int64_t time,uint64_t order,const std::string &profile="pickup");
     bool apply(uint32_t actor,ue::Bits &bits,int64_t time,uint64_t order);
+    // container（地图固定容器）只解析 ReplicatedMovement 坐标，不解 contents。
+    // 旧实现 container 在 players.cpp 被直接跳过，导致固定物资点全部丢失。
+    bool apply_container(uint32_t actor,ue::Bits &bits,int64_t time,uint64_t order);
     bool close(uint32_t actor,unsigned reason,int64_t time,uint64_t order);
     Json snapshot(uint32_t actor) const;
 };

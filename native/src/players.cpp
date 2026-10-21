@@ -732,7 +732,9 @@ struct PlayerDecoder::Impl {
                     channel.profile = "other";
             }
         }
-        if (!r.left() || channel.profile == "other" || channel.profile == "container")
+        // 旧实现 container 直接 return，容器永远拿不到位置和内容（雷达上固定
+        // 物资点全丢）。现在 container 也走 blocks 解析，只是不解析 contents。
+        if (!r.left() || channel.profile == "other")
             return;
         std::vector<ue::Block> all;
         std::string block_tail_error;
@@ -751,6 +753,13 @@ struct PlayerDecoder::Impl {
             ue::Bits data(b.payload, block.end, block.start);
             if(channel.profile=="pickup"||channel.profile=="death_box"){
                 if(block.actor&&f.loot.apply(channel.actor,data,d.at("timestampMs"),f.logical_order))loot_event(f,event,channel.actor);
+                continue;
+            }
+            // container：只取 ReplicatedMovement 的坐标，不解 contents。
+            // 之前完全跳过 => 地图固定容器在雷达上不存在。
+            if(channel.profile=="container"){
+                if(block.actor&&f.loot.apply_container(channel.actor,data,d.at("timestampMs"),f.logical_order))
+                    loot_event(f,event,channel.actor);
                 continue;
             }
             if (!block.actor) {

@@ -28,7 +28,10 @@ void LootTracker::exports(const Json &entries){
 void LootTracker::open(uint32_t actor,const Json &position,int64_t time,uint64_t order,const std::string &profile){
     if(!actor||(!records_.contains(actor)&&records_.size()>=4096))return;
     auto &r=records_[actor];if(std::pair{time,order}<std::pair{r.time,r.order})return;
-    if(r.removed||r.profile!=profile)r=Record{};
+    // 旧实现 r.profile!=profile 时整条记录重置，导致同一 actor 在 death_box /
+    // pickup / container 之间抖动时记录被反复清空 => 盒子在雷达上反复消失。
+    // 现在只在「已移除」时重置；profile 变化只更新类型，保留已解出的字段和坐标。
+    if(r.removed)r=Record{};
     r.profile=profile;
     r.time=time;r.order=order;r.removed=false;r.reason="open";
     if(position_ok(position))r.position=position;
@@ -58,6 +61,31 @@ bool LootTracker::apply(uint32_t actor,ue::Bits &bits,int64_t time,uint64_t orde
         else if(profile=="death_box"&&fields.contains("bHidden")&&fields["bHidden"]==false){r.removed=false;r.reason="visible";}
     }
     return true;
+}
+bool LootTracker::apply_container(uint32_t actor,ue::Bits &bits,int64_t time,uint64_t order){
+    auto it=records_.find(actor);if(it==records_.end())return false;
+    auto &r=it->second;
+    if(std::pair{time,order}<std::pair{r.time,r.order})return false;
+    // 固定容器只需要坐标和存在性。用 pickup 布局解析出 ReplicatedMovement，
+    // 解不出也不报错（容器属性表可能不同），只保留 open() 给的默认状态。
+    bool changed=false;
+    try{
+        ue::Bits probe=bits;
+        auto p=ue::properties(probe,"pickup");
+        const auto &fields=p.at("fields");
+        if(fields.is_object()&&fields.contains("ReplicatedMovement")){
+            auto pos=fields["ReplicatedMovement"].value("location",Json());
+            if(position_ok(pos)&&pos!=r.position){r.position=pos;changed=true;}
+        }
+        if(fields.is_object()&&fields.contains("bHidden")){
+            bool hidden=fields["bHidden"]==true;
+            if(hidden!=r.removed){r.removed=hidden;r.reason=hidden?"hidden":"visible";changed=true;}
+        }
+    }catch(const std::exception &){/* 容器属性表不同，忽略；open() 已登记存在性 */}
+    if(!r.position.is_array())return false;   // 没坐标的容器不上雷达
+    if(changed||r.status!="spawn"){r.time=time;r.order=order;r.status="spawn";return true;}
+    r.time=time;r.order=order;
+    return changed;
 }
 bool LootTracker::close(uint32_t actor,unsigned reason,int64_t time,uint64_t order){
     auto it=records_.find(actor);if(it==records_.end()||std::pair{time,order}<std::pair{it->second.time,it->second.order})return false;
