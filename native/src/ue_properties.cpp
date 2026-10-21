@@ -4,6 +4,9 @@
 #include "radaer/ue.hpp"
 #include <bit>
 #include <cmath>
+#include <map>
+#include <string>
+#include <vector>
 namespace radaer::ue {
 namespace {
 struct Opaque : Error {
@@ -195,9 +198,57 @@ Json value(Bits &r, int type, const Json &meta, bool character, bool pickup=fals
         throw Opaque("unsupported replication type " + std::to_string(type));
     }
 }
+// 【性能】旧实现 walk() 每个 block 遍历全部 commands（character 有几百项），
+// 每项做 c.at("type") + c.value("end") 两次 std::map 查找 + 字符串比较。
+// 实测 player_sample 392/秒 × 每 block 数百项 × 2 次 map 查找
+// => 每秒数十万次红黑树查找 => 采集线程 100% 单核 => 雷达滞后 20+ 秒。
+//
+// 预解析成扁平 C 结构体：schema 只解析一次（static），walk() 只读数组下标。
+struct Cmd {
+    int type = 0;
+    size_t end = 0;
+    bool single = false;
+    bool has_departure = false;
+    bool has_field_name = false;
+    const Json *meta = nullptr;
+    std::string name;          // 只在需要写 fields 时用
+    std::string departure_name;
+    std::string field_name;
+};
+
+// schema 名 -> 扁平命令表。首次调用时解析，之后只读。
+const std::vector<Cmd> &flat_commands(const std::string &schema_key, const Json &commands) {
+    static std::map<std::string, std::vector<Cmd>> cache;
+    auto it = cache.find(schema_key);
+    if (it != cache.end())
+        return it->second;
+    std::vector<Cmd> out;
+    out.reserve(commands.size());
+    for (const auto &c : commands) {
+        Cmd cmd;
+        cmd.type = c.at("type").get<int>();
+        cmd.end = c.value("end", size_t(0));
+        cmd.single = c.value("single", false);
+        cmd.meta = &c.at("meta");
+        if (c.contains("name") && c["name"].is_string())
+            cmd.name = c["name"].get<std::string>();
+        if (cmd.meta->contains("departure_name")) {
+            cmd.has_departure = true;
+            cmd.departure_name = (*cmd.meta)["departure_name"].get<std::string>();
+        }
+        if (cmd.meta->contains("field_name")) {
+            cmd.has_field_name = true;
+            cmd.field_name = (*cmd.meta)["field_name"].get<std::string>();
+        }
+        out.push_back(std::move(cmd));
+    }
+    auto [pos, _] = cache.emplace(schema_key, std::move(out));
+    return pos->second;
+}
+
 struct Walker {
     Bits &r;
-    const Json &commands;
+    const std::vector<Cmd> &commands;
     bool checksum;
     bool pickup=false;
     bool box=false;
@@ -220,9 +271,9 @@ struct Walker {
             // current 只加 1（对应数组本身），i 跳到 end-1。二者刻意不同步。
             // 已验证：TeamID(index 93) 在此逻辑下 current=62，与 Python catalog 的 handle 62 一致。
             ++current;
-            auto &c = commands.at(i);
-            auto type = c.at("type").get<int>();
-            auto end = c.value("end", size_t(0));
+            const auto &c = commands[i];
+            auto type = c.type;
+            auto end = c.end;
             if (!end)
                 end = i + 2;
             if (type == 0 && (end <= i + 1 || end > commands.size()))
@@ -233,13 +284,13 @@ struct Walker {
                 continue;
             }
             if (type != 0) {
-                auto v = value(r, type, c.at("meta"), false, pickup, box);
-                if (!depth && c.at("single").get<bool>())
-                    fields[c.at("name").get<std::string>()] = v;
-                if (!depth && c.at("meta").contains("departure_name"))
-                    fields[c["meta"]["departure_name"].get<std::string>()] = v;
-                if (!depth && box && c.at("meta").contains("field_name"))
-                    fields[c["meta"]["field_name"].get<std::string>()] = v;
+                auto v = value(r, type, *c.meta, false, pickup, box);
+                if (!depth && c.single)
+                    fields[c.name] = v;
+                if (!depth && c.has_departure)
+                    fields[c.departure_name] = v;
+                if (!depth && box && c.has_field_name)
+                    fields[c.field_name] = v;
                 handle = next();
             } else {
                 auto count = r.read(16);
@@ -297,7 +348,8 @@ Json properties(Bits &r, const std::string &profile) {
                 last = h;
             }
         } else {
-            Walker w{r, commands, r.bit()};
+            const auto &flat = flat_commands(profile, commands);
+            Walker w{r, flat, r.bit()};
             w.box=boxes.contains(profile);
             w.pickup=profile=="pickup"||w.box;
             w.handle = w.next();
