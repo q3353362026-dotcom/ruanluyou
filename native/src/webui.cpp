@@ -183,7 +183,11 @@ struct Captures {
                 if (rows[i - 1].value("flow", std::string()) == flow)
                     rows.erase(i - 1);
         }
-        if (type == "player_validation" || type == "self_validation" || type == "self_server_validation" || type == "player_motion" || type == "player_state" || type == "loot_state") {
+        // player_sample 现在直接携带 UI 需要的字段（x/y/z/name/teamId/camp/vitals 等），
+        // 不再依赖 player_validation 中转 —— 后者已被移除（纯冗余事件）。
+        if (type == "player_sample" || type == "player_validation" || type == "self_validation" ||
+            type == "self_server_validation" || type == "player_motion" || type == "player_state" ||
+            type == "loot_state") {
             const auto &d = event.at("data");
             if (!state.contains("battle") || state["battle"].value("status", std::string()) != "live" ||
                 state["battle"]["flow"] != d["flow"] || state["battle"]["epoch"] != d["epoch"] ||
@@ -244,8 +248,7 @@ struct Captures {
             return;
         }
         if (type == "udp_raw" || type == "udp_plaintext" || type == "tcp_plaintext" || type == "bank_use" ||
-            type == "capture_stats" || type == "player_sample" || type == "self_sample" ||
-            type == "self_server_sample" ||
+            type == "capture_stats" || type == "self_sample" || type == "self_server_sample" ||
             type == "player_identity")
             return;
         Json safe = {

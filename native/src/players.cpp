@@ -463,6 +463,10 @@ struct PlayerDecoder::Impl {
         // => 采集线程 100% 单核 => 内核缓冲积压 20+ 秒 => 雷达位置严重滞后。
         // 现在只保留 UI 真正消费的字段。诊断走 player_decode_error/warning 事件。
         data["vitals"] = vitals_for(f,actor_id);
+        // player_sample 直接进 webui 的 players 数组（不再经 player_validation 中转），
+        // 需要带上 status/flags 供 PlayerValidator 之外的消费者判断。
+        data["status"] = "plausible";
+        data["flags"] = Json::array();
         // equipment / lifecycle 只在内容变化时才输出。旧实现每个 sample 都深拷贝
         // 一份完整装备表 + lifecycle 树，绝密模式 244 sample/秒 => 单核 A53 吃满。
         // 下游（radar_bridge.py）按 actorGuid 合并，缺字段时沿用上一次的值。
