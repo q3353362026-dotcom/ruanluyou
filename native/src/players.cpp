@@ -469,6 +469,12 @@ struct PlayerDecoder::Impl {
         data["name"] = std::move(name);
         data["teamId"] = std::move(team);
         data["camp"] = fields.value("Camp", Json());
+        // 【干员显示】PlayerState.HeroId（schema index=221，Int64Property）。
+        // 之前性能优化把整个 attributes 当诊断字段砍掉，连 heroId 一起没了，
+        // 导致 UI 的 HERO_NAMES 查表拿不到值，所有玩家都不显示干员。
+        // 这里只取一个字段，不做深拷贝。
+        if (ps_id && fields.contains("HeroId"))
+            data["heroId"] = fields.at("HeroId");
         data["teamSource"] = ps_id && fields.contains("TeamID") ? "PlayerState.TeamID" : "unknown";
         data["kind"] = actor_id ? "player" : "unclassified_movement_slot";
         data["actorGuid"] = actor_id;
