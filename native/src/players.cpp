@@ -1023,6 +1023,36 @@ struct PlayerDecoder::Impl {
         }
     }
     void consume(const Json &e) {
+        // [mem_diag] 每 30 秒打印各容器规模，定位长时间运行的内存增长
+        {
+            static int64_t last_report = 0;
+            static auto t0 = std::chrono::steady_clock::now();
+            auto el = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::steady_clock::now() - t0).count();
+            if (el - last_report >= 30000) {
+                last_report = el;
+                size_t n_actors = 0, n_paths = 0, n_life = 0, n_slots = 0,
+                       n_chans = 0, n_fields = 0, n_motion = 0;
+                for (const auto &fk_f : flows) {
+                    const auto &f = fk_f.second;
+                    n_actors += f.actors.size();
+                    n_paths += f.paths.size();
+                    n_life += f.lifecycle.size();
+                    n_slots += f.slots.size();
+                    n_chans += f.channels.size();
+                    for (const auto &a_act : f.actors)
+                        n_fields += a_act.second.fields.size();
+                    for (const auto &sk_tr : f.slots)
+                        n_motion += sk_tr.second.motion.size();
+                }
+                std::fprintf(stderr,
+                    "[mem_diag] el=%llds flows=%zu actors=%zu fields=%zu paths=%zu "
+                    "lifecycle=%zu slots=%zu motion=%zu channels=%zu\n",
+                    (long long)(el / 1000), flows.size(), n_actors, n_fields,
+                    n_paths, n_life, n_slots, n_motion, n_chans);
+                std::fflush(stderr);
+            }
+        }
         // 顶层计时：区分「非 udp_plaintext 事件」和「udp_plaintext 处理」各占多少。
         struct Top {
             int64_t *acc;
