@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Radaer · 战术视图</title>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>CaiB 战术雷达</title>
 <link rel="stylesheet" href="/vendor/leaflet/leaflet.css"><link rel="stylesheet" href="/radar/view.css">
 <script src="/vendor/leaflet/leaflet.js" defer></script><script src="/radar/model.js" defer></script><script src="/radar/replay.js" defer></script><script src="/radar/view.js" defer></script></head>
 <body>
 <div id="map" aria-label="二维战术地图"></div><canvas id="overlay" aria-label="人物位置和朝向"></canvas>
-<header class="top"><a class="brand" href="/" title="返回采集控制台"><span class="brand-mark">⌁</span><span>RADAER<small>TACTICAL OBSERVER</small></span></a>
+<header class="top"><a class="brand" href="/" title="返回采集控制台"><span class="brand-mark">⌁</span><span>CAIB<small>TACTICAL OBSERVER</small></span></a>
  <nav id="mapTabs" class="map-switch" aria-label="切换底图"></nav><select id="mapSelect" class="map-select" aria-label="选择地图"></select><span id="mapTitle" class="sr-only" aria-live="polite">坐标网格</span>
  <div class="top-actions"><span id="linkState" class="badge">连接中</span><button id="toggleReplay" type="button">回放</button><a href="/" target="_blank" rel="noopener">采集控制台 ↗</a></div></header>
 <section class="island" aria-label="可见人物统计"><div><strong id="totalCount">—</strong><span>可见目标</span></div><i></i><div><strong id="mateCount">—</strong><span>同队</span></div><div><strong id="otherCount">—</strong><span>其他队伍</span></div><i></i><div><strong id="nearest">—</strong><span>最近距离 · m</span></div></section>

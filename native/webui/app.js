@@ -26,7 +26,7 @@ function applyNetwork(network){
  if(model.adapters.some(a=>a.key===previous))$('adapter').value=previous;
  $('privilege').textContent=network.elevated?'管理员模式':'普通权限 · 扫描可用';
  if(network.platform==='linux'){
-  $('privilege').textContent=network.elevated?'路由器采集服务':'普通权限 · 无法采集';
+  $('privilege').textContent=network.elevated?'CaiB 采集服务运行中':'普通权限 · 无法采集';
   document.querySelector('.sidebar-note p').textContent='客户机 → 路由器 → 互联网';
   document.querySelector('.heading p').textContent='选择 LAN 中的客户机，采集经过路由器的 IPv4 流量。';
   $('emptyDevices').querySelector('p').textContent='让客户机连接路由器 LAN 或 Wi-Fi；也可以直接输入客户机 IP。';
