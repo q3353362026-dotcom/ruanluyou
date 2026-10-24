@@ -100,21 +100,46 @@ jobs:
           echo "TC=$TC"
           echo "STAGING=$STAGING"
 
+          # 工具链前缀随架构变化：aarch64-openwrt-linux-musl- / x86_64-openwrt-linux-musl- ...
+          # 从 toolchain 目录里自动探测，避免写死导致 x86_64 编译失败。
+          PREFIX=$(basename "$(ls "$TC"/bin/*-openwrt-linux-musl-gcc 2>/dev/null | head -1)" | sed 's/gcc$//')
+          if [ -z "$PREFIX" ]; then
+            echo "!!! cannot detect toolchain prefix in $TC/bin"
+            ls "$TC/bin" | head -30
+            exit 1
+          fi
+          echo "PREFIX=$PREFIX"
+
           # 必须绝对路径：OpenSSL 的 make 会 cd 到 apps/lib 等子目录，
           # 相对路径的 CC 会变成 Error 127 (command not found)。
-          export CC="$TC/bin/aarch64-openwrt-linux-musl-gcc"
-          export CXX="$TC/bin/aarch64-openwrt-linux-musl-g++"
-          export AR="$TC/bin/aarch64-openwrt-linux-musl-gcc-ar"
-          export RANLIB="$TC/bin/aarch64-openwrt-linux-musl-gcc-ranlib"
-          export NM="$TC/bin/aarch64-openwrt-linux-musl-gcc-nm"
+          export CC="$TC/bin/${PREFIX}gcc"
+          export CXX="$TC/bin/${PREFIX}g++"
+          export AR="$TC/bin/${PREFIX}gcc-ar"
+          export RANLIB="$TC/bin/${PREFIX}gcc-ranlib"
+          export NM="$TC/bin/${PREFIX}gcc-nm"
           export CFLAGS="-Os -fPIC -ffunction-sections -fdata-sections"
+
+          # OpenSSL Configure 的 target 名随架构变化
+          case "$PREFIX" in
+            aarch64-*) OSSL_TARGET="linux-aarch64" ;;
+            x86_64-*)  OSSL_TARGET="linux-x86_64" ;;
+            arm-*)     OSSL_TARGET="linux-armv4" ;;
+            mipsel-*)  OSSL_TARGET="linux-mips32" ;;
+            mips-*)    OSSL_TARGET="linux-mips32" ;;
+            i386-*)    OSSL_TARGET="linux-elf" ;;
+            *)
+              echo "!!! unknown arch for OpenSSL: $PREFIX"
+              exit 1
+              ;;
+          esac
+          echo "OSSL_TARGET=$OSSL_TARGET"
 
           cd "$WS"
           wget -q "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz"
           tar xf "openssl-${OPENSSL_VERSION}.tar.gz"
           cd "openssl-${OPENSSL_VERSION}"
 
-          ./Configure linux-aarch64 \
+          ./Configure "$OSSL_TARGET" \
             --prefix="$STAGING/usr" \
             --openssldir=/etc/ssl \
             no-tests no-shared no-async no-engine no-dso no-legacy
