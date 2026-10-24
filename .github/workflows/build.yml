@@ -2,13 +2,22 @@ name: Build radaer-native ipk
 
 on:
   workflow_dispatch:
+    inputs:
+      sdk_target:
+        description: "SDK_TARGET (e.g. qualcommax/ipq807x or x86/64)"
+        required: false
+        default: "qualcommax/ipq807x"
+      sdk_file:
+        description: "SDK_FILE (full filename)"
+        required: false
+        default: "openwrt-sdk-24.10.1-qualcommax-ipq807x_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
   push:
     branches: [main, master]
 
 env:
   SDK_VERSION: "24.10.1"
-  SDK_TARGET: "qualcommax/ipq807x"
-  SDK_FILE: "openwrt-sdk-24.10.1-qualcommax-ipq807x_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+  SDK_TARGET: ${{ github.event.inputs.sdk_target || 'qualcommax/ipq807x' }}
+  SDK_FILE: ${{ github.event.inputs.sdk_file || 'openwrt-sdk-24.10.1-qualcommax-ipq807x_gcc-13.3.0_musl.Linux-x86_64.tar.zst' }}
   OPENSSL_VERSION: "3.0.15"
 
 jobs:
@@ -30,14 +39,36 @@ jobs:
         uses: actions/cache@v4
         with:
           path: sdk
-          key: openwrt-sdk-${{ env.SDK_VERSION }}-ipq807x-musl-v2
+          key: openwrt-sdk-${{ env.SDK_VERSION }}-${{ env.SDK_FILE }}-musl-v3
 
       - name: Download OpenWrt SDK
         if: steps.sdk-cache.outputs.cache-hit != 'true'
         run: |
           set -eux
-          URL="https://downloads.openwrt.org/releases/${SDK_VERSION}/targets/${SDK_TARGET}/${SDK_FILE}"
-          wget -q "$URL" -O sdk.tar.zst
+          FILE="${SDK_FILE}"
+          TARGET="${SDK_TARGET}"
+          VER="${SDK_VERSION}"
+          # 官方源经常 502，按顺序试镜像
+          for BASE in \
+            "https://downloads.openwrt.org" \
+            "https://mirrors.ustc.edu.cn/openwrt" \
+            "https://mirror.sjtu.edu.cn/openwrt" \
+            "https://mirrors.tuna.tsinghua.edu.cn/openwrt"
+          do
+            URL="${BASE}/releases/${VER}/targets/${TARGET}/${FILE}"
+            echo ">>> trying ${URL}"
+            if wget -q --timeout=60 --tries=2 "${URL}" -O sdk.tar.zst 2>/dev/null; then
+              if [ -s sdk.tar.zst ] && tar --zstd -tf sdk.tar.zst >/dev/null 2>&1; then
+                echo ">>> OK from ${BASE}"
+                break
+              fi
+            fi
+            rm -f sdk.tar.zst
+          done
+          if [ ! -s sdk.tar.zst ]; then
+            echo "!!! all mirrors failed for ${FILE}"
+            exit 1
+          fi
           ls -lh sdk.tar.zst
           rm -rf sdk
           mkdir -p sdk
