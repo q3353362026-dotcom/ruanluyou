@@ -101,7 +101,9 @@ struct Captures {
         if (!o.linux_redirect) o.tcp_port = 0;
         if (!o.tcp_server.empty()) throw std::runtime_error("Linux WebUI does not accept tcpServer");
 #endif
-        if (o.save_logs && j.value("saveBanks", false))
+        // saveBanks 只落盘 128 字节 bank（每局 1 个），与 saveLogs（完整日志）无关。
+        // 原实现要求 save_logs 为真，导致不开日志时永远拿不到 bank。
+        if (j.value("saveBanks", false))
             o.save_banks = (std::filesystem::path(options.output_directory) / "banks").string();
         if (j.contains("bankIds")) {
             if (!j["bankIds"].is_array() || j["bankIds"].size() > 64)
