@@ -810,6 +810,19 @@ struct PlayerDecoder::Impl {
                                "properties " + status + ": " +
                                    props.value("error", std::string("unconsumed bits")),
                                b.channel);
+                // 【干员探针】把线上 handle 序列打出来，定位 schema 错位点。
+                if (props.contains("trace") && props.at("trace").is_array()) {
+                    std::string tr;
+                    for (const auto &t : props.at("trace")) {
+                        if (!t.is_array() || t.size() < 3)
+                            continue;
+                        tr += std::to_string(t[0].get<uint64_t>()) + "@" +
+                              std::to_string(t[1].get<uint64_t>()) + "/" +
+                              std::to_string(t[2].get<uint64_t>()) + " ";
+                    }
+                    if (!tr.empty())
+                        diagnostic(f, event, "handle trace[" + status + "]: " + tr, b.channel, true);
+                }
                 if (status == "error")
                     continue;
                 if (!channel.actor)

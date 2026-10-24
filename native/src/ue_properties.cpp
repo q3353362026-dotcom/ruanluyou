@@ -2,6 +2,8 @@
 #include "loot_schema.hpp"
 #include "container_schema.hpp"
 #include "radaer/ue.hpp"
+#include <array>
+#include <atomic>
 #include <bit>
 #include <cmath>
 #include <map>
@@ -257,10 +259,17 @@ struct Walker {
     uint32_t handle = 0;
     size_t budget = 0;
     Json fields = Json::object();
+    // 【干员探针】记录线上 handle 序列 (wire handle, 位偏移, 对应 schema 计数)。
+    // 只在第一个 block 采样，避免高频包把内存打爆。
+    std::vector<std::array<uint64_t, 3>> trace;
+    bool trace_on = false;
     uint32_t next() {
+        const size_t at = r.pos;
         auto h = r.packed();
         if (checksum)
             r.skip(32);
+        if (trace_on && trace.size() < 512)
+            trace.push_back({uint64_t(h), uint64_t(at), uint64_t(handle)});
         return h;
     }
     void walk(size_t first, size_t last, unsigned &current, unsigned depth) {
@@ -361,15 +370,31 @@ Json properties(Bits &r, const std::string &profile) {
             Walker w{r, flat, r.bit()};
             w.box=boxes.contains(profile);
             w.pickup=profile=="pickup"||w.box;
+            // 【干员探针】只对 current/legacy profile 采样一次
+            static std::atomic<bool> trace_used{false};
+            if ((profile == "current" || profile == "legacy") && !trace_used.exchange(true))
+                w.trace_on = true;
             w.handle = w.next();
             unsigned current = 0;
             try {
                 w.walk(0, commands.size(), current, 0);
             } catch (...) {
                 result["fields"] = w.fields;
+                if (!w.trace.empty()) {
+                    Json tr = Json::array();
+                    for (auto &t : w.trace)
+                        tr.push_back(Json::array({t[0], t[1], t[2]}));
+                    result["trace"] = std::move(tr);
+                }
                 throw;
             }
             result["fields"] = w.fields;
+            if (!w.trace.empty()) {
+                Json tr = Json::array();
+                for (auto &t : w.trace)
+                    tr.push_back(Json::array({t[0], t[1], t[2]}));
+                result["trace"] = std::move(tr);
+            }
             if (w.handle)
                 throw Error("replication handle outside catalog");
         }
