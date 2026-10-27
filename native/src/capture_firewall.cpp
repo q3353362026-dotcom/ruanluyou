@@ -119,6 +119,7 @@ CaptureFirewall::~CaptureFirewall() = default;
 #elif defined(__linux__)
 #include "radaer/linux_network.hpp"
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <regex>
@@ -127,6 +128,10 @@ CaptureFirewall::~CaptureFirewall() = default;
 #include <unistd.h>
 namespace radaer {
 namespace {
+// TPROXY 用的 fwmark 与策略路由表号。选一个不和 OpenClash（0x162/354）冲突的值。
+constexpr unsigned kTproxyMark = 0x1a2b;
+constexpr unsigned kTproxyTable = 421;
+
 // Feed a file descriptor to nft directly; never interpret interface/IP values through a shell.
 bool nft(const std::string &rules) {
     char filename[] = "/tmp/radaer-nft-XXXXXX";
@@ -183,13 +188,33 @@ struct CaptureFirewall::Impl {
         if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) != 0)
             throw std::runtime_error("Another Radaer TCP capture owns the firewall");
         // The table is dedicated to this application. Atomic replacement also repairs a killed capture.
+        //
+        // 【TPROXY 而非 REDIRECT】
+        // 旧实现用 `redirect to :port`（NAT 链），内核会把目标地址改写成网关本地地址，
+        // 客户端 getpeername() 得到 192.168.5.1:port —— 游戏客户端会 inet_ntop() 取对端 IP
+        // 并上报，发现「连的不是游戏服务器」→ 判定为异常 → 退出对局后被丢进观察局。
+        //
+        // 改用 tproxy：内核保留原始目标地址，客户端 getpeername() 仍是真实服务器 IP；
+        // relay 侧用 IP_TRANSPARENT socket + getsockname() 拿到原始目标。
+        // 需要配套策略路由（见 Impl::add 里 ip rule/ip route 的设置）。
         const auto network = ipv4_string(host & (0xffffffffU << (32 - prefix))) + "/" + std::to_string(prefix);
         const auto rules = "add table ip radaer_native\ndelete table ip radaer_native\n"
-            "table ip radaer_native {\n chain prerouting { type nat hook prerouting priority -101; policy accept;\n"
+            "table ip radaer_native {\n chain prerouting { type filter hook prerouting priority mangle; policy accept;\n"
             "iifname \"" + o.interface + "\" ip saddr " + ipv4_string(parse_ipv4(o.client_ip)) +
             " ip daddr != " + network + " fib daddr type != local tcp dport " + std::to_string(o.tcp_port) +
-            " counter redirect to :" + port + "\n }\n}\n";
-        if (!nft(rules)) throw std::runtime_error("Cannot install Radaer TCP redirect rule");
+            " counter meta mark set 0x" + std::to_string(kTproxyMark) +
+            " tproxy ip to :" + port + " accept\n }\n}\n";
+        if (!nft(rules)) throw std::runtime_error("Cannot install Radaer TCP tproxy rule");
+
+        // 策略路由：把打了 mark 的包交给本地回环，让 TPROXY 能投递给 relay 的监听 socket。
+        // 这些命令幂等（重复执行不报错），失败只告警不中断（某些系统已有等价规则）。
+        if (!nft("add table ip radaer_native\n")) { /* 已存在则忽略 */ }
+        std::string route_cmds =
+            "ip rule add fwmark " + std::to_string(kTproxyMark) + " lookup " + std::to_string(kTproxyTable) +
+            " 2>/dev/null; "
+            "ip route add local 0.0.0.0/0 dev lo table " + std::to_string(kTproxyTable) + " 2>/dev/null; true";
+        if (std::system(route_cmds.c_str()) != 0)
+            std::cerr << "Warning: cannot install TPROXY policy routing (ip rule/route)\n";
         added = true;
     }
     ~Impl() {

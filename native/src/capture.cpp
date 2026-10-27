@@ -239,6 +239,14 @@ int capture(const CaptureOptions &options, std::atomic<bool> *cancellation, Sink
                    sizeof(one));
 #else
         setsockopt(listener.fd, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&one), sizeof(one));
+#ifdef __linux__
+        // TPROXY 要求监听 socket 带 IP_TRANSPARENT，否则内核无法把「目标地址不是本机」的
+        // 连接投递给它。缺这个选项时 tproxy 规则会静默丢包。
+        if (o.linux_redirect &&
+            setsockopt(listener.fd, SOL_IP, IP_TRANSPARENT, reinterpret_cast<const char *>(&one),
+                       sizeof(one)) != 0)
+            throw std::runtime_error("cannot set IP_TRANSPARENT on relay listener");
+#endif
 #endif
         if (bind(listener.fd, reinterpret_cast<sockaddr *>(&a), sizeof(a)) != 0 ||
             listen(listener.fd, SOMAXCONN) != 0)
@@ -549,11 +557,15 @@ int capture(const CaptureOptions &options, std::atomic<bool> *cancellation, Sink
 #ifdef __linux__
                         if (o.original_destination) {
                             socklen_t len = sizeof(dest);
-                            if (getsockopt(c->client.fd, SOL_IP, SO_ORIGINAL_DST, &dest, &len) < 0)
-                                throw std::runtime_error("SO_ORIGINAL_DST failed");
+                            // TPROXY 模式下内核保留原始目标：accept() 出来的 socket
+                            // getsockname() 直接返回「客户端原本要连的地址」。
+                            // 旧的 SO_ORIGINAL_DST 只对 NAT REDIRECT/DNAT 有效，
+                            // 在 tproxy 链上会失败或返回网关自身地址。
+                            if (getsockname(c->client.fd, reinterpret_cast<sockaddr *>(&dest), &len) != 0)
+                                throw std::runtime_error("getsockname failed on tproxy socket");
                             sockaddr_in local{};
                             socklen_t ll = sizeof(local);
-                            getsockname(c->client.fd, reinterpret_cast<sockaddr *>(&local), &ll);
+                            getsockname(listener.fd, reinterpret_cast<sockaddr *>(&local), &ll);
                             if (dest.sin_addr.s_addr == local.sin_addr.s_addr &&
                                 dest.sin_port == local.sin_port)
                                 throw std::runtime_error("original destination points back to relay");
