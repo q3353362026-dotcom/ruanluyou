@@ -119,6 +119,7 @@ CaptureFirewall::~CaptureFirewall() = default;
 #elif defined(__linux__)
 #include "radaer/linux_network.hpp"
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
@@ -198,19 +199,22 @@ struct CaptureFirewall::Impl {
         // relay 侧用 IP_TRANSPARENT socket + getsockname() 拿到原始目标。
         // 需要配套策略路由（见 Impl::add 里 ip rule/ip route 的设置）。
         const auto network = ipv4_string(host & (0xffffffffU << (32 - prefix))) + "/" + std::to_string(prefix);
+        // mark 必须和 ip rule 里的 fwmark 完全一致。这里统一用十六进制字符串，
+        // 避免 std::to_string(0x1a2b) 得到十进制 "6699" 再拼 "0x" 变成 0x6699 的错位。
+        char mark_hex[16];
+        std::snprintf(mark_hex, sizeof(mark_hex), "%x", kTproxyMark);
         const auto rules = "add table ip radaer_native\ndelete table ip radaer_native\n"
             "table ip radaer_native {\n chain prerouting { type filter hook prerouting priority mangle; policy accept;\n"
             "iifname \"" + o.interface + "\" ip saddr " + ipv4_string(parse_ipv4(o.client_ip)) +
             " ip daddr != " + network + " fib daddr type != local tcp dport " + std::to_string(o.tcp_port) +
-            " counter meta mark set 0x" + std::to_string(kTproxyMark) +
+            " counter meta mark set 0x" + mark_hex +
             " tproxy ip to :" + port + " accept\n }\n}\n";
         if (!nft(rules)) throw std::runtime_error("Cannot install Radaer TCP tproxy rule");
 
         // 策略路由：把打了 mark 的包交给本地回环，让 TPROXY 能投递给 relay 的监听 socket。
         // 这些命令幂等（重复执行不报错），失败只告警不中断（某些系统已有等价规则）。
-        if (!nft("add table ip radaer_native\n")) { /* 已存在则忽略 */ }
         std::string route_cmds =
-            "ip rule add fwmark " + std::to_string(kTproxyMark) + " lookup " + std::to_string(kTproxyTable) +
+            "ip rule add fwmark 0x" + std::string(mark_hex) + " lookup " + std::to_string(kTproxyTable) +
             " 2>/dev/null; "
             "ip route add local 0.0.0.0/0 dev lo table " + std::to_string(kTproxyTable) + " 2>/dev/null; true";
         if (std::system(route_cmds.c_str()) != 0)
