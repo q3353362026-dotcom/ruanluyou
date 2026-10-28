@@ -73,6 +73,9 @@ struct Captures {
         o.shared_windows = true;
         o.save_logs = j.value("saveLogs", true);
         o.save_udp_payload = j.value("saveUdpPayload", false);
+        // saveTcpPlaintext 之前完全没被解析，导致 capture.cpp 里 payloadBase64 永远被抹掉，
+        // relay 采集拿不到 TGCP 解密后的明文，无法和直连基线做逐字节对比。
+        o.save_tcp_plaintext = j.value("saveTcpPlaintext", false);
         o.max_log_bytes = number(j, "maxLogBytes", unsigned(default_journal_max_bytes),
                                  unsigned(min_journal_max_bytes), unsigned(max_journal_max_bytes));
         o.shared_host_ip = string_value(j, "hostIp");
