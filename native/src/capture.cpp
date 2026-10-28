@@ -561,11 +561,22 @@ int capture(const CaptureOptions &options, std::atomic<bool> *cancellation, Sink
                             // getsockname() 直接返回「客户端原本要连的地址」。
                             // 旧的 SO_ORIGINAL_DST 只对 NAT REDIRECT/DNAT 有效，
                             // 在 tproxy 链上会失败或返回网关自身地址。
-                            if (getsockname(c->client.fd, reinterpret_cast<sockaddr *>(&dest), &len) != 0)
+                            if (getsockname(c->client.fd, reinterpret_cast<sockaddr *>(&dest), &len) != 0) {
+                                std::fprintf(stderr, "[tproxy] getsockname failed errno=%d\n", errno);
                                 throw std::runtime_error("getsockname failed on tproxy socket");
+                            }
                             sockaddr_in local{};
                             socklen_t ll = sizeof(local);
                             getsockname(listener.fd, reinterpret_cast<sockaddr *>(&local), &ll);
+                            std::fprintf(stderr,
+                                         "[tproxy] peer=%s:%u  orig_dst=%s:%u  listener=%s:%u\n",
+                                         ipv4_string(ntohl(source.sin_addr.s_addr)).c_str(),
+                                         unsigned(ntohs(source.sin_port)),
+                                         ipv4_string(ntohl(dest.sin_addr.s_addr)).c_str(),
+                                         unsigned(ntohs(dest.sin_port)),
+                                         ipv4_string(ntohl(local.sin_addr.s_addr)).c_str(),
+                                         unsigned(ntohs(local.sin_port)));
+                            std::fflush(stderr);
                             if (dest.sin_addr.s_addr == local.sin_addr.s_addr &&
                                 dest.sin_port == local.sin_port)
                                 throw std::runtime_error("original destination points back to relay");
